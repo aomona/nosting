@@ -2,7 +2,7 @@
 
 Material 3 Expressive の Nostr Web クライアント。
 
-**[使ってみる](https://petal-nostr-aomona.aomona.chatgpt.site)**
+**[使ってみる](https://nost.ing)**
 
 ## 機能
 

@@ -1,0 +1,15 @@
+/* Available in the server-rendered shell, before the application chunk arrives. */
+.startup-screen{--startup-bg:#f8faf0;--startup-ink:#191d15;--startup-primary:#426427;--startup-container:#dceccf;display:grid;place-items:center;min-height:100svh;padding:24px;background:var(--startup-bg);color:var(--startup-ink)}
+html[data-theme="dark"] .startup-screen,.startup-screen[data-theme="dark"]{color-scheme:dark;--startup-bg:#11150d;--startup-ink:#e1e4d8;--startup-primary:#a8d18a;--startup-container:#2b3a22}
+.startup-indicator{display:grid;place-items:center;width:80px;height:80px}
+.startup-motion,.startup-static{grid-area:1/1}
+.startup-motion m3e-theme{min-height:0;background:transparent}
+.startup-static{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:var(--startup-container);color:var(--startup-primary)}
+.startup-static svg{width:38px;height:38px}
+.startup-ready{display:none}
+.startup-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.startup-error{text-align:center}.startup-error p{margin:0 0 20px;font-size:16px}
+.startup-error button{font:inherit;font-weight:600;min-height:48px;padding:0 28px;border:0;border-radius:999px;background:var(--startup-primary);color:var(--startup-bg);cursor:pointer}
+.startup-error button:focus-visible{outline:3px solid var(--startup-primary);outline-offset:4px}
+@media(prefers-reduced-motion:reduce){.startup-motion{display:none}.startup-ready{display:grid}}
+@media(forced-colors:active){.startup-static{color:CanvasText;border:1px solid CanvasText}.startup-error button{border:1px solid ButtonText}}

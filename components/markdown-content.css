@@ -1,0 +1,15 @@
+.petal-markdown { min-width: 0; overflow-wrap: anywhere; font-size: 15px; line-height: 1.8; }
+.note .petal-markdown p, .petal-markdown p { white-space: normal; margin: 8px 0 12px; }
+.petal-markdown h1, .petal-markdown h2, .petal-markdown h3, .petal-markdown h4, .petal-markdown h5, .petal-markdown h6 { font-size: 1.1em; line-height: 1.5; margin: 16px 0 8px; font-weight: 700; letter-spacing: normal; }
+.petal-markdown h1 { font-size: 1.3em; }.petal-markdown h2 { font-size: 1.2em; }
+.petal-markdown a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.petal-markdown ul, .petal-markdown ol { margin: 8px 0; padding-inline-start: 24px; }
+.petal-markdown blockquote { margin: 12px 0; padding: 2px 14px; border-inline-start: 3px solid var(--primary); color: var(--muted); }
+.petal-markdown code { font-family: ui-monospace, monospace; font-size: .9em; border-radius: 6px; padding: 2px 4px; background: var(--container); }
+.petal-markdown pre { white-space: pre; overflow: auto; max-width: 100%; padding: 14px; border-radius: 16px; background: var(--container); font-size: 13px; }
+.petal-markdown pre code { padding: 0; background: transparent; }
+.petal-markdown-table { max-width: 100%; overflow: auto; margin: 12px 0; }
+.petal-markdown table { border-collapse: collapse; font-size: 14px; }
+.petal-markdown th, .petal-markdown td { padding: 8px 12px; border: 1px solid var(--line); text-align: start; }
+.petal-markdown hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.petal-markdown .task-list-item { list-style: none; }.petal-markdown input[type=checkbox] { accent-color: var(--primary); margin-inline-end: 6px; }

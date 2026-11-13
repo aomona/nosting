@@ -1,0 +1,7 @@
+.petal-quote { min-width:0;max-width:100%;margin-block:12px; }
+m3e-card.petal-quote-card { display:block;min-width:0;max-width:100%;--m3e-card-shape:20px; }
+.petal-quote-inner { flex:0 0 auto;width:100%;min-width:0;box-sizing:border-box;padding:16px;overflow-wrap:anywhere; }
+.petal-quote-heading { display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin-bottom:8px; }
+.petal-quote-status { color:var(--muted);font-size:13px;line-height:1.6; }
+.petal-quote-status m3e-button { margin-top:8px; }
+@media(max-width:450px){.petal-quote-inner{padding:12px}}

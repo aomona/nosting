@@ -1,0 +1,73 @@
+/* The field, focus outline, control shapes and state layers belong to M3E.
+   Only disclosure geometry animates here: down, then out toward the right. */
+.inline-reply {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  width: 100%;
+  animation: reply-space 180ms cubic-bezier(.2, 0, 0, 1) both;
+}
+.inline-reply-clip { min-height: 0; overflow: hidden; }
+.inline-reply-reveal {
+  padding: 10px 2px 4px;
+  animation: reply-unfold 220ms cubic-bezier(.2, 0, 0, 1) 60ms both;
+}
+.inline-reply-form { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: end; gap: 8px; margin: 0; padding: 0; min-width: 0; width: 100%; }
+.inline-reply m3e-form-field.inline-reply-field {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  width: 0;
+  --m3e-form-field-width: 100%;
+  --m3e-form-field-font-size: 16px;
+  --m3e-form-field-line-height: 24px;
+  --m3e-outlined-form-field-container-shape: var(--md-sys-shape-corner-extra-large, 28px);
+  --m3e-form-field-outline-color: var(--md-sys-color-outline-variant);
+  --m3e-form-field-focused-outline-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-surface);
+}
+.inline-reply .inline-reply-leading { width: 24px; height: 24px; color: var(--md-sys-color-on-surface-variant); }
+.inline-reply .inline-reply-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  max-height: 192px;
+  margin-block: 12px;
+  padding: 4px 0;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 24px;
+  resize: none;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+.inline-reply-input::placeholder { color: var(--md-sys-color-on-surface-variant); opacity: 1; }
+.inline-reply-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; min-height: 48px; }
+.inline-reply-controls m3e-icon-button { flex: 0 0 auto; }
+.inline-reply .inline-reply-error { margin: 8px 16px 2px; font-size: 12px; line-height: 1.5; color: var(--md-sys-color-error); }
+.inline-reply.is-closing { animation: reply-space 150ms cubic-bezier(.2, 0, 0, 1) reverse both; pointer-events: none; }
+.inline-reply.is-closing .inline-reply-reveal { animation: reply-unfold 120ms cubic-bezier(.2, 0, 0, 1) reverse both; }
+@keyframes reply-space { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
+@keyframes reply-unfold {
+  from { clip-path: inset(0 calc(100% - var(--reply-origin, 0px) - 48px) 0 var(--reply-origin, 0px) round 28px); opacity: 0; translate: 0 -8px; }
+  28% { opacity: 1; translate: 0 0; }
+  to { clip-path: inset(0 0 0 0 round 28px); opacity: 1; translate: 0 0; }
+}
+@media (max-width: 650px) {
+  .inline-reply { --reply-origin: 52px; }
+  .inline-reply-controls { gap: 0; }
+  .inline-reply-reveal { padding-inline: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inline-reply, .inline-reply-reveal, .inline-reply.is-closing, .inline-reply.is-closing .inline-reply-reveal { animation: none; }
+}
+
+/* Keep send outside the field but in the same non-wrapping flex row at every width. */
+.inline-reply .inline-reply-send { flex: 0 0 auto; min-width: 80px; min-height: 48px; margin-bottom: 4px; --m3e-button-container-height: 48px; }

@@ -1,0 +1,3 @@
+.petal-windowed-feed{min-width:0}.petal-window-row{min-width:0;display:flow-root}.petal-windowed-feed.is-windowed{overflow-anchor:none}.petal-window-row[aria-hidden=true]{pointer-events:none}.petal-windowed-feed.is-windowed .petal-window-row:not([aria-hidden=true]) .note{content-visibility:visible;contain-intrinsic-size:none}
+
+.petal-window-row:not(:last-child)>.note{border-bottom:1px solid var(--line)}

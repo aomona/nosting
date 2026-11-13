@@ -1,0 +1,6 @@
+.petal-upload {min-width:0;margin-top:8px}
+.petal-upload-preview{display:flex;align-items:flex-start;gap:16px;padding:12px;background:var(--surface);border-radius:20px;margin-bottom:12px}
+.petal-upload-preview>img{width:96px;height:96px;object-fit:contain;border-radius:12px;flex-shrink:0}
+.petal-upload-details{min-width:0;flex:1}.petal-upload-details p{font-size:13px;line-height:1.6;margin:0 0 4px}
+.petal-upload-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.petal-upload-error{color:var(--md-sys-color-error,#ba1a1a);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+@media(max-width:450px){.petal-upload-preview{flex-direction:column;gap:10px}.petal-upload-preview>img{width:100%;height:140px}}

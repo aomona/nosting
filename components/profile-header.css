@@ -1,0 +1,38 @@
+m3e-card.petal-profile-header {
+ display: block; width: 100%; min-width: 0; max-width: 100%; margin-bottom: 24px;
+ --m3e-card-shape: var(--md-sys-shape-corner-extra-large, 28px);
+ --m3e-filled-card-container-color: var(--md-sys-color-surface-container-low);
+ border-radius: var(--md-sys-shape-corner-extra-large, 28px); overflow: hidden;
+}
+.petal-profile-layout { flex: 0 0 auto; width: 100%; min-width: 0; max-width: 100%; }
+.petal-profile-banner { height: clamp(112px, 25vw, 200px); overflow: hidden; background: var(--md-sys-color-surface-container); }
+.petal-profile-banner img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.petal-profile-details { padding: 24px; min-width: 0; }
+.petal-profile-avatar { display: inline-flex; border-radius: 50%; background: var(--md-sys-color-surface-container-low); padding: 6px; margin: -6px; vertical-align: top; }
+.petal-profile-header.has-banner .petal-profile-avatar { position: relative; margin-top: -66px; }
+.petal-profile-avatar .profile-avatar.large { --m3e-avatar-size: 88px; --m3e-avatar-shape: 50%; }
+.petal-profile-identity { margin-top: 16px; min-width: 0; }
+.petal-profile-identity h2 { color: var(--md-sys-color-on-surface); font-size: clamp(24px, 4vw, 32px); font-weight: 700; line-height: 1.25; letter-spacing: -.025em; margin: 0; overflow-wrap: anywhere; }
+.petal-profile-handle { color: var(--md-sys-color-on-surface-variant); font-size: 14px; line-height: 1.5; margin-top: 6px; overflow-wrap: anywhere; }
+.petal-profile-about { color: var(--md-sys-color-on-surface); margin: 20px 0 0; font-size: 15px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.petal-profile-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 24px; min-width: 0; }
+.petal-profile-actions m3e-button { min-width: 0; max-width: 100%; }
+.petal-profile-domain { display: block; max-width: min(34ch, 50vw); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media(max-width:650px) {
+ m3e-card.petal-profile-header { width: calc(100% - 24px); margin: 0 12px 20px; }
+ .petal-profile-details { padding: 20px; }
+ .petal-profile-banner { height: 132px; }
+ .petal-profile-avatar .profile-avatar.large { --m3e-avatar-size: 80px; }
+ .petal-profile-header.has-banner .petal-profile-avatar { margin-top: -62px; }
+ .petal-profile-actions { margin-top: 20px; }
+}
+
+/* Keep the original avatar-to-name gap; the action shares only the name row. */
+.petal-profile-topline{position:relative;display:block;min-width:0}
+.petal-profile-name-row{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.petal-profile-name-row h2{flex:1;min-width:0}
+.petal-profile-follow{display:flex;flex:0 0 auto;justify-content:flex-end;min-width:0}
+.petal-profile-follow m3e-button{max-width:100%;white-space:nowrap}
+.petal-profile-follow svg{width:20px;height:20px}
+@media(max-width:360px){.petal-profile-name-row{gap:8px}}
+.petal-profile-about a{color:var(--md-sys-color-primary);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.petal-profile-about a:focus-visible{outline:2px solid var(--md-sys-color-primary);outline-offset:3px;border-radius:2px}

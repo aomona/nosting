@@ -1,4 +1,4 @@
-# Petal v2 design revision
+# nost.ing v2 design revision
 
 Source: https://design.google/library/expressive-material-design-google-research
 https://m3.material.io/styles/motion/overview/how-it-works

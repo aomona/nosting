@@ -1,6 +1,6 @@
 # 自己ホスト
 
-PetalはCloudflare Workers上で動作するVinextアプリです。画像アップロードには自分のD1データベースとR2バケットが必要です。**このリポジトリには運営中のPetalの認証情報・保存画像・DBは含まれません。**
+nost.ingはCloudflare Workers上で動作するVinextアプリです。画像アップロードには自分のD1データベースとR2バケットが必要です。**このリポジトリには運営中のnost.ingの認証情報・保存画像・DBは含まれません。**
 
 ## ローカル実行
 
@@ -50,4 +50,4 @@ npx wrangler deploy --config wrangler.self-host.json
 
 ## Sitesで使う場合
 
-`.openai/hosting.json`には汎用のD1/R2バインディングだけが入っています。新しいSiteを作成し、自分のSite IDを設定してください。稼働中PetalのIDをコピーしないでください。補助ツールの詳細は [スターター資料](sites-starter.md) にあります。
+`.openai/hosting.json`には汎用のD1/R2バインディングだけが入っています。新しいSiteを作成し、自分のSite IDを設定してください。稼働中nost.ingのIDをコピーしないでください。補助ツールの詳細は [スターター資料](sites-starter.md) にあります。

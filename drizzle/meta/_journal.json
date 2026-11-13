@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1794305227040,
+      "tag": "0000_good_spirit",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794309749534,
+      "tag": "0001_loving_anthem",
+      "breakpoints": true
+    }
+  ]
+}

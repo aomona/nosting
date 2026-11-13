@@ -13,7 +13,11 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test": "node scripts/test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm test && npm run typecheck && npm run build",
+    "precommit": "node scripts/precommit.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "prepare": "npm run hooks:install"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -1,0 +1,33 @@
+import fs from 'node:fs/promises';
+import ts from 'typescript';
+import assert from 'node:assert/strict';
+const source=await fs.readFile('lib/initial-feed.ts','utf8');
+const {InitialFeed}=await import('data:text/javascript;base64,'+Buffer.from(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText).toString('base64'));
+const feed=new InitialFeed(),states=[];
+const tick=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+feed.start(['a','b','a'],value=>states.push(value),100);
+assert.equal(feed.loading,true);
+feed.settle('a');feed.settle('unknown');feed.settle('a');
+assert.equal(feed.loading,true); // one fast relay cannot end a slower snapshot
+feed.settle('b');
+assert.equal(feed.loading,false);
+assert.deepEqual(states,[true,false]);
+feed.start([],value=>states.push(value));
+assert.equal(feed.loading,false);
+feed.start(['silent'],value=>states.push(value),5);
+await tick(20);
+assert.equal(feed.loading,false); // missing EOSE cannot deadlock pagination
+feed.start(['old'],value=>{if(!value)throw Error('stale callback')},5);
+feed.start(['new'],()=>{},100);
+await tick(20);
+assert.equal(feed.loading,true);
+feed.settle('old');
+assert.equal(feed.loading,true);
+feed.cancel();
+assert.equal(feed.loading,false);
+const app=await fs.readFile('components/petal-app.tsx','utf8');
+assert.match(app,/isProfile\?profileLoading:initialFeed.current.loading/);
+assert.match(app,/view==='home'&&initialLoading\|\|view==='profile'/);
+assert.match(app,/view==='home'&&!initialLoading\|\|view==='profile'&&!profileLoading/);
+assert.match(app,/m\[1\]==='feed'&&\(m\[0\]==='EOSE'\|\|m\[0\]==='CLOSED'\)/);
+console.log('PASS initial snapshot completion, partial/silent relay, cancellation and pagination/UI guards');

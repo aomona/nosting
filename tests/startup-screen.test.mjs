@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const page=await readFile('app/page.tsx','utf8');
+const screen=await readFile('components/startup-screen.tsx','utf8');
+const css=await readFile('components/startup-screen.css','utf8');
+assert(page.includes('<StartupScreen failed={failed}'));
+assert(!page.includes('Petalを読み込み中…'));
+assert(screen.includes("import('./startup-indicator')"));
+assert(!screen.includes("from '@m3e"),'Web Components must not load during SSR');
+assert(screen.includes('role="status"'));
+assert(screen.includes('aria-hidden="true"'));
+assert(screen.includes("localStorage.getItem('petal-dark')==='true'"));
+assert(css.includes('prefers-reduced-motion:reduce'));
+assert(css.includes('.startup-motion{display:none}.startup-ready{display:grid}'));
+assert(css.includes('min-height:100svh'));
+assert(css.includes('[data-theme="dark"]'));
+console.log('PASS SSR-safe startup, single accessible status, dark theme and static reduced-motion fallback');

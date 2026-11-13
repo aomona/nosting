@@ -1,0 +1,3 @@
+"use client";
+import {useEffect,useState, type ComponentType} from 'react';
+export default function Page(){const [App,setApp]=useState<ComponentType|null>(null),[failed,setFailed]=useState(false),[attempt,setAttempt]=useState(0);useEffect(()=>{let active=true;setFailed(false);import('../components/petal-app').then(m=>{if(active)setApp(()=>m.default)}).catch(()=>{if(active)setFailed(true)});return()=>{active=false}},[attempt]);return App?<App/>:<main aria-busy={!failed} style={{padding:32}}>{failed?<><p role="status">Petalを読み込めませんでした。</p><button onClick={()=>setAttempt(n=>n+1)}>再試行</button></>:<span role="status">Petalを読み込み中…</span>}</main>}

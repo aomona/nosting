@@ -4,7 +4,7 @@ const page=await readFile('app/page.tsx','utf8');
 const screen=await readFile('components/startup-screen.tsx','utf8');
 const css=await readFile('components/startup-screen.css','utf8');
 assert(page.includes('<StartupScreen failed={failed}'));
-assert(!page.includes('Petalを読み込み中…'));
+assert(!page.includes('nost.ingを読み込み中…'));
 assert(screen.includes("import('./startup-indicator')"));
 assert(!screen.includes("from '@m3e"),'Web Components must not load during SSR');
 assert(screen.includes('role="status"'));

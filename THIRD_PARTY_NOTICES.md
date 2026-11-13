@@ -1,6 +1,6 @@
 # Third-party notices
 
-Petal's MIT license does not replace licenses of third-party code.
+nost.ing's MIT license does not replace licenses of third-party code.
 
 - `scripts/vite/sites-vite-plugin.ts`: vendored OpenAI Sites plugin; retain `scripts/vite/sites-vite-plugin.LICENSE` (MIT, copyright OpenAI).
 - `vendor/shadcn-tailwind-4.13.0.css`: retain `vendor/shadcn-tailwind-4.13.0.LICENSE.md` (MIT, copyright shadcn).

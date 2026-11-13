@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 const source=await fs.readFile('components/petal-app.tsx','utf8');
 assert.match(source,/export const MemoizedNoteList=memo\(NoteList\)/);
-assert.match(source,/export function NoteList[\s\S]*?<WindowedFeed items=\{notes\}[\s\S]*?renderItem=\{n=><NoteRow key=\{n\.id\}/);
+assert.match(source,/export function NoteList[\s\S]*?<WindowedFeed items=\{notes\}[\s\S]*?renderItem=\{n=>[\s\S]*?<NoteRow key=\{n\.id\}/);
 assert.match(source,/<div className="feed"><MemoizedNoteList notes=\{filtered\}/);
 assert.doesNotMatch(source,/filtered\.map\(/);
 assert.match(source,/busy=\{busy&&replySet\.has\(n\.id\)\}/);

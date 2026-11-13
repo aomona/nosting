@@ -10,6 +10,7 @@ import {useLocalDraft} from './local-draft';
 
 export interface InlineReplyProps {
   noteId: string;
+  instanceId?: string;
   name: string;
   busy: boolean;
   /** Return true only after relay acceptance. False keeps the draft open. */
@@ -17,8 +18,8 @@ export interface InlineReplyProps {
   onCancel: () => void;
 }
 
-export default function InlineReply({noteId, name, busy, onSend, onCancel}: InlineReplyProps) {
-  const localDraft=useLocalDraft(noteId);
+export default function InlineReply({noteId, instanceId=noteId, name, busy, onSend, onCancel}: InlineReplyProps) {
+  const localDraft=useLocalDraft(instanceId);
   const text=localDraft.text,setText=localDraft.setText;
   const [sending, setSending] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -95,7 +96,7 @@ export default function InlineReply({noteId, name, busy, onSend, onCancel}: Inli
         <form className="inline-reply-form" aria-label={`${name}への返信`} aria-busy={sending} onSubmit={event => {event.preventDefault(); void send();}}>
           <M3eFormField className="inline-reply-field" variant="outlined" hideSubscript="always">
           <MessageCircle slot="prefix" className="inline-reply-leading" aria-hidden="true" size={24}/>
-          <textarea ref={input} id={`reply-${noteId}`} className="inline-reply-input" aria-label={`${name}への返信`} placeholder="返信する…" rows={1} maxLength={4000} value={text} aria-describedby={error?`reply-error-${noteId}`:undefined} readOnly={disabled} onChange={event => {setText(event.target.value); setError('');}} onKeyDown={event => {
+          <textarea ref={input} id={`reply-${instanceId}`} className="inline-reply-input" aria-label={`${name}への返信`} placeholder="返信する…" rows={1} maxLength={4000} value={text} aria-describedby={error?`reply-error-${instanceId}`:undefined} readOnly={disabled} onChange={event => {setText(event.target.value); setError('');}} onKeyDown={event => {
             if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.repeat) return;
             if (event.key === 'Escape' && !disabled) { event.preventDefault(); event.stopPropagation(); close(); }
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(); }
@@ -109,7 +110,7 @@ export default function InlineReply({noteId, name, busy, onSend, onCancel}: Inli
         </form>
         {!localDraft.saved&&<p className="draft-status">保存できません。閉じる前にコピーしてください</p>}
         {text&&<button type="button" className="draft-clear" disabled={disabled} onClick={()=>setText('')}>下書きを消去</button>}
-        {error && <div id={`reply-error-${noteId}`} className="inline-reply-error" role="alert">{error}</div>}
+        {error && <div id={`reply-error-${instanceId}`} className="inline-reply-error" role="alert">{error}</div>}
       </div>
     </div>
   </div>;

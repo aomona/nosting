@@ -11,3 +11,5 @@ nost.ing's MIT license does not replace licenses of third-party code.
 `package-lock.json` identifies exact dependencies and their declared licenses. Transitive/build dependencies include MPL-2.0 components (e.g. lightningcss) and LGPL-3.0-or-later libvips binaries used by sharp. Those licenses continue to apply; an MIT application license does not relicense these packages. If distributing binaries, containers, or modified third-party components, review the applicable source, notice, and redistribution obligations.
 
 This repository distributes source, not node_modules or compiled third-party binaries. Keep original license files when installing or redistributing dependencies.
+
+The green brand mark in public/favicon.svg is a vector interpretation of the selected nost.ing concept, based on the Nostr logo by Andrea Nicolini: https://github.com/mbarulli/nostr-logo#license , dedicated to the public domain under CC0 1.0 https://creativecommons.org/publicdomain/zero/1.0/ .

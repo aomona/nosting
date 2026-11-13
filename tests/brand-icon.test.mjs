@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const svg=await readFile('public/favicon.svg','utf8');
+assert(svg.includes('viewBox="140 125 980 980"'));
+assert(svg.includes('#CBE0A9')&&svg.includes('#3E5C22'));
+assert(!/<(?:script|foreignObject|image)\b/i.test(svg));
+assert(!/https?:\/\//i.test(svg.replace('http://www.w3.org/2000/svg','')));
+const app=await readFile('components/petal-app.tsx','utf8');
+assert(app.includes('className="brand-icon" src="/favicon.svg" width="32" height="32" alt=""'));
+const layout=await readFile('app/layout.tsx','utf8');
+assert(layout.includes("icon:'/favicon.svg',apple:'/apple-touch-icon.png'"));
+const png=await readFile('public/apple-touch-icon.png');
+assert.deepEqual(png.subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]));
+assert.equal(png.readUInt32BE(16),180);assert.equal(png.readUInt32BE(20),180);
+console.log('PASS brand icons, static SVG and Apple touch dimensions');

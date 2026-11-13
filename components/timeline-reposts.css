@@ -1,0 +1,5 @@
+.repost-attribution{grid-column:1 / -1;display:flex;align-items:center;gap:8px;min-width:0;margin-bottom:12px;color:var(--muted);font-size:12px}
+.repost-attribution svg{flex-shrink:0}
+.repost-attribution button{border:0;background:none;color:inherit;font:inherit;text-align:left;min-width:0;overflow-wrap:anywhere;cursor:pointer;border-radius:var(--md-sys-shape-corner-small,8px)}
+.repost-attribution button:hover{color:var(--primary)}
+.repost-attribution button:focus-visible{outline:2px solid var(--primary);outline-offset:4px}

@@ -1,0 +1,1 @@
+export function isLatestReplaceable(old:{id:string;created_at:number;pubkey:string}|null,next:{id:string;created_at:number;pubkey:string}){return !old||old.pubkey!==next.pubkey||next.created_at>old.created_at||next.created_at===old.created_at&&next.id<old.id}

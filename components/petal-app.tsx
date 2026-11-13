@@ -4,6 +4,8 @@ import {DraftOwnerContext,useAccountDraft} from './local-draft';
 import WindowedFeed from './windowed-feed';
 import {FEED_LIMIT,retainFeed,retainProfiles} from '../lib/feed-retention';
 import {RelayListDiscovery} from '../lib/relay-discovery';
+import AccountRelayEditor from './account-relay-editor';
+import {AccountRelaySession,accountConnections,accountRelayStorageKey,readAccountConnections,relayLookupUrls,loadAccountRelayList,saveAccountRelayList,publishAccountRelayList,type AccountRelayState} from '../lib/account-relays';
 import {useLocalMutes} from './use-local-mutes';
 import MuteSettings from './mute-settings';
 import {MuteContext} from './mute-context';
@@ -20,7 +22,7 @@ import {InitialFeed} from '../lib/initial-feed';
 import ThreadDetail from './thread-detail';
 import {makeReplyTags} from '../lib/reply-tags';
 import NotificationFeed from './notification-feed';
-import {nip19,verifyEvent,type Event as NostrEvent} from 'nostr-tools';
+import {nip19,verifyEvent,type Event as NostrEvent,type EventTemplate} from 'nostr-tools';
 import {TimelineReposts} from '../lib/timeline-reposts';
 import './timeline-reposts.css';
 import {QuoteResolver} from '../lib/quotes';
@@ -42,7 +44,7 @@ import {M3eCard} from '@m3e/react/card';
 import RelayEditor,{type RelayEditorHandle} from './relay-editor';
 import {DropdownMenu,DropdownMenuTrigger,DropdownMenuContent,DropdownMenuItem} from './ui/dropdown-menu';
 import './profile-menu.css';
-import {DEFAULT_RELAYS,RELAY_STORAGE,parseRelays,canRead,canWrite,type RelayConfig} from '../lib/relays';
+import {DEFAULT_RELAYS,canRead,canWrite,type RelayConfig} from '../lib/relays';
 import NoteContent from './note-content';
 import NoteTime from './note-time';
 import {shareNote} from '../lib/share-note';
@@ -58,7 +60,7 @@ import {M3eButtonGroup} from '@m3e/react/button-group';
 import {M3eTheme} from '@m3e/react/theme';
 import {M3eNavBar,M3eNavItem} from '@m3e/react/nav-bar';
 import {M3eNavMenu,M3eNavMenuItem} from '@m3e/react/nav-menu';
-import {memo,useContext,useEffect,useLayoutEffect,useMemo,useRef,useState,type RefObject} from 'react';
+import {memo,useContext,useEffect,useEffectEvent,useLayoutEffect,useMemo,useRef,useState,type RefObject} from 'react';
 import {Home,Search,Bookmark,Settings,ArrowUpRight,Plus,Heart,MessageCircle,Repeat2,Copy,Share2,Zap,Bell,Radio,ArrowRight,ArrowLeft,X,Sun,Moon,Check,Send,Link,ChevronDown,LogOut,Flower2,SlidersHorizontal,UserRound,MoreHorizontal,VolumeX,RefreshCw} from 'lucide-react';
 type Note=Omit<NostrEvent,'sig'>&{sig?:string};
 
@@ -81,6 +83,11 @@ export const MemoizedNoteList=memo(NoteList);
 export default function App(){
  const [relays,setRelays]=useState<RelayConfig[]>(DEFAULT_RELAYS);
  const activeRelays=useRef<RelayConfig[]>(DEFAULT_RELAYS);
+ const localRelayOverride=useRef<RelayConfig[]|null>(null);
+ const relayAccountAbort=useRef(new AbortController());
+ const [accountRelayState,setAccountRelayState]=useState<AccountRelayState>({owner:'',event:null,partial:true,loading:false});
+ const accountRelayUpdate=useRef<(state:AccountRelayState)=>void>(()=>{});
+ const accountRelays=useRef<AccountRelaySession|null>(null);
  const zapReadRelays=useMemo(()=>relays.filter(r=>r.read).map(r=>r.url),[relays]);
  const [view,setView]=useState('home'),[tab,setTab]=useState('すべて'),[dark,setDark]=useState(false),[themeReady,setThemeReady]=useState(false),[notes,setNotes]=useState<Note[]>([]),[q,setQ]=useState(''),[pubkey,setPubkey]=useState(''),[modal,setModal]=useState(''),[toast,setToast]=useState(''),[busy,setBusy]=useState(false),[reply,setReply]=useState<Note|null>(null),[bookmarks,setBookmarks]=useState<string[]>([]),[liked,setLiked]=useState<string[]>([]),[statuses,setStatuses]=useState<Record<string,string>>({}),[follows,setFollows]=useState<string[]>([]),[profiles,setProfiles]=useState<Record<string,Profile>>({});
  const localMutes=useLocalMutes(pubkey);
@@ -123,21 +130,21 @@ export default function App(){
  const profilePins=useRef(new Set<string>());profilePins.current=new Set([pubkey,profileKey,...notes.map(n=>n.pubkey),...Object.values(repostNotes).map(n=>n.pubkey),...authorNotes.map(n=>n.pubkey)]);
  function collectFeed(event:Note){if(feedFull.current)return;if(pendingFeed.current.size<FEED_LIMIT)pendingFeed.current.set(event.id,event);if(!feedBatch.current)feedBatch.current=later(()=>{feedBatch.current=undefined;const batch=[...pendingFeed.current.values()];pendingFeed.current.clear();setNotes(old=>retainFeed(old,batch));requestProfiles(batch)},80)}
  useEffect(()=>{if(notes.length>=FEED_LIMIT)for(const ws of sockets.current)if(ws.readyState===1&&canRead(activeRelays.current,ws.url))sendRelay(ws,JSON.stringify(['CLOSE','feed']))},[notes.length]);
- useEffect(()=>()=>relayDiscovery.current.cancel(),[]);
+ useEffect(()=>()=>{relayDiscovery.current.cancel();accountRelays.current?.stop();relayAccountAbort.current.abort()},[]);
  useEffect(()=>{relayDiscovery.current.cancel()},[pubkey]);
- useEffect(()=>{reposts.current=new TimelineReposts(id=>quotes.current!.request(id),(event,original)=>{setRepostNotes(old=>({...old,[event.id]:original}));requestProfiles([event,original])});let initial=DEFAULT_RELAYS;try{const raw=localStorage.getItem(RELAY_STORAGE);if(raw)initial=parseRelays(JSON.parse(raw))}catch{}setRelays(initial);void connect(initial);try{setBookmarks(JSON.parse(localStorage.getItem('petal-bookmarks')||'[]').filter((id:unknown)=>typeof id==='string'&&/^[a-f0-9]{64}$/.test(id)));}catch{};try{setDark(localStorage.getItem('petal-dark')==='true')}catch{}setThemeReady(true);return()=>{loginSession.current.cancel();searchEpoch.current++;searcher.current.cancel();homePager.current.reset();authorPager.current.reset();generation.current++;initialFeed.current.cancel();reposts.current?.reset();quotes.current?.reset();profileSnapshots.current.stop();profileOverflow.current=false;connection.current?.stop();publisher.current.cancel();timers.current.forEach(clearTimeout)}},[]);
+ useEffect(()=>{reposts.current=new TimelineReposts(id=>quotes.current!.request(id),(event,original)=>{setRepostNotes(old=>({...old,[event.id]:original}));requestProfiles([event,original])});let initial=DEFAULT_RELAYS;try{localRelayOverride.current=readAccountConnections(localStorage,'');initial=accountConnections(localRelayOverride.current,null)}catch{}setRelays(initial);void connect(initial);try{setBookmarks(JSON.parse(localStorage.getItem('petal-bookmarks')||'[]').filter((id:unknown)=>typeof id==='string'&&/^[a-f0-9]{64}$/.test(id)));}catch{};try{setDark(localStorage.getItem('petal-dark')==='true')}catch{}setThemeReady(true);return()=>{loginSession.current.cancel();searchEpoch.current++;searcher.current.cancel();homePager.current.reset();authorPager.current.reset();generation.current++;initialFeed.current.cancel();reposts.current?.reset();quotes.current?.reset();profileSnapshots.current.stop();profileOverflow.current=false;connection.current?.stop();publisher.current.cancel();timers.current.forEach(clearTimeout)}},[]);
 
  useEffect(()=>{if(!themeReady)return;document.documentElement.dataset.theme=dark?'dark':'light';try{localStorage.setItem('petal-dark',String(dark))}catch{}},[dark,themeReady]);
  function save(id:string){setBookmarks(b=>{const n=b.includes(id)?b.filter(x=>x!==id):[...b,id];localStorage.setItem('petal-bookmarks',JSON.stringify(n));return n})}
- async function connect(config:RelayConfig[]=activeRelays.current){
-  if(busy)return;relayDiscovery.current.cancel();pendingFeed.current.clear();if(feedBatch.current){clearTimeout(feedBatch.current);timers.current.delete(feedBatch.current);feedBatch.current=undefined}feedFull.current=false;cancelSearch();homePager.current.reset();authorPager.current.reset();authorCache.current.clear();setPaging({loading:false,error:'',done:false});const run=++generation.current;activeRelays.current=config;setTab('すべて');setAuthorNotes([]);setNotes([]);setRepostNotes({});reposts.current?.reset();quotes.current?.reset();profileSnapshots.current.stop();profileOverflow.current=false;connection.current?.stop();publisher.current.cancel();sockets.current=[];setStatuses(Object.fromEntries(config.map(r=>[r.url,r.read||r.write?'接続中':'無効'])));setModal('');
+ async function connect(config:RelayConfig[]=activeRelays.current,keepModal=false){
+  relayDiscovery.current.cancel();pendingFeed.current.clear();if(feedBatch.current){clearTimeout(feedBatch.current);timers.current.delete(feedBatch.current);feedBatch.current=undefined}feedFull.current=false;cancelSearch();homePager.current.reset();authorPager.current.reset();authorCache.current.clear();setPaging({loading:false,error:'',done:false});const run=++generation.current;activeRelays.current=config;setTab('すべて');setAuthorNotes([]);setNotes([]);setRepostNotes({});reposts.current?.reset();quotes.current?.reset();profileSnapshots.current.stop();profileOverflow.current=false;connection.current?.stop();publisher.current.cancel();sockets.current=[];setStatuses(Object.fromEntries(config.map(r=>[r.url,r.read||r.write?'接続中':'無効'])));if(!keepModal)setModal('');
   initialFeed.current.start(config.filter(r=>r.read).map(r=>r.url),setInitialLoading);
   const {verifyEvent}=await import('nostr-tools');if(run!==generation.current)return;
   connection.current=new RelayConnections({
    status:(url,status)=>{if(run===generation.current){setStatuses(s=>({...s,[url]:status}));if(status==='接続失敗')initialFeed.current.settle(url)}},
    changed:current=>{if(run===generation.current)sockets.current=current},
    disconnected:url=>{if(run!==generation.current)return;relayDiscovery.current.disconnect(url);profileSnapshots.current.disconnect(url);quotes.current?.disconnect(url);searcher.current.disconnect(url);homePager.current.disconnect(url);authorPager.current.disconnect(url)},
-   open:(ws,{url,read})=>{if(read){reposts.current?.retry();homePager.current.reconnect(url);authorPager.current.reconnect(url);setPaging(p=>({...p,done:false,error:''}));if(!feedFull.current)sendRelay(ws,JSON.stringify(['REQ','feed',{kinds:[1,6],limit:45}]));if(activeUser.current)sendRelay(ws,JSON.stringify(['REQ','contacts',{kinds:[3],authors:[activeUser.current],limit:1}]));if(selectedAuthor.current)sendRelay(ws,JSON.stringify(['REQ','author-notes',{kinds:[1],authors:[selectedAuthor.current],limit:60}]))}},
+   open:(ws,{url,read})=>{accountRelays.current?.reconnect(url);if(read){reposts.current?.retry();homePager.current.reconnect(url);authorPager.current.reconnect(url);setPaging(p=>({...p,done:false,error:''}));if(!feedFull.current)sendRelay(ws,JSON.stringify(['REQ','feed',{kinds:[1,6],limit:45}]));if(activeUser.current)sendRelay(ws,JSON.stringify(['REQ','contacts',{kinds:[3],authors:[activeUser.current],limit:1}]));if(selectedAuthor.current)sendRelay(ws,JSON.stringify(['REQ','author-notes',{kinds:[1],authors:[selectedAuthor.current],limit:60}]))}},
    message:(ws,{url,read},e,frame)=>{if(run!==generation.current)return;try{const m=frame as any[];if(m[1]==='feed'&&(m[0]==='EOSE'||m[0]==='CLOSED')){initialFeed.current.settle(url);return}if(String(m[1]).startsWith('relay-list-')){if(read)relayDiscovery.current.receive(url,m,m[0]==='EVENT'&&verifyEvent(m[2])?m[2]:undefined);return}if(String(m[1]).startsWith('quote-')){if(read)quotes.current?.receive(url,m);return;}if(String(m[1]).startsWith('search-')){if(m[0]==='EVENT'){if(read&&verifyEvent(m[2]))searcher.current.receive(url,m,m[2])}else searcher.current.receive(url,m);return}if(m[0]!=='EVENT'&&(homePager.current.receive(url,m)||authorPager.current.receive(url,m)))return;if(m[0]==='EOSE'&&m[1]==='author-notes'){setProfileLoading(false);sendRelay(ws,JSON.stringify(['CLOSE','author-notes']));return}if(m[0]!=='EVENT'&&profileSnapshots.current.receive(ws,m))return;if(m[0]==='OK'){publisher.current.receive(url,m[1],m[2]);return}if(m[0]!=='EVENT'||!read)return;const ev=m[2];if(!verifyEvent(ev))return;if(String(m[1]).startsWith('history-')){if(ev.kind===6||ev.kind===1&&ev.content.length<=10000){homePager.current.receive(url,m,ev);authorPager.current.receive(url,m,ev)}return}
     if(ev.kind===0){const p=readProfile(ev);if(p)setProfiles(old=>newerProfile(old[ev.pubkey],p)?retainProfiles(old,ev.pubkey,p,profilePins.current):old);return}
     if(ev.kind===3&&ev.pubkey===activeUser.current){const old=latestContacts.current;if(isLatestReplaceable(old,ev)){latestContacts.current=ev;setFollows([...new Set<string>(ev.tags.filter((t:string[])=>t[0]==='p'&&/^[a-f0-9]{64}$/.test(t[1])).map((t:string[])=>t[1]))])}return}
@@ -147,6 +154,62 @@ export default function App(){
    }catch{}}
   });connection.current.start(config);
  }
+
+ // The public snapshot and the browser override have independent lifetimes.
+ useLayoutEffect(()=>{if(!accountRelays.current)accountRelays.current=new AccountRelaySession(state=>accountRelayUpdate.current(state));accountRelayUpdate.current=state=>{if(state.owner!==activeUser.current)return;setAccountRelayState(state)}},[]);
+ const applyAccountConnections=useEffectEvent(()=>{if(accountRelayState.owner!==activeUser.current)return;const config=accountConnections(localRelayOverride.current,accountRelayState.event);if(JSON.stringify(config)!==JSON.stringify(activeRelays.current)){setRelays(config);void connect(config,true)}});
+ useEffect(()=>{if(!busy)applyAccountConnections()},[accountRelayState,busy]);
+ function switchRelayAccount(owner:string){
+  relayAccountAbort.current.abort();relayAccountAbort.current=new AbortController();
+  accountRelays.current?.stop();relayDiscovery.current.cancel();
+  let local:RelayConfig[]|null=null;try{local=readAccountConnections(localStorage,owner)}catch{}
+  localRelayOverride.current=local;const config=accountConnections(local,null);setRelays(config);void connect(config,true);
+  accountRelays.current!.start(owner,relayLookupUrls(local,null));
+ }
+ function saveLocalRelays(config:RelayConfig[]){
+  if(pubkey!==activeUser.current)throw Error('ログイン状態が変わりました');
+  localStorage.setItem(accountRelayStorageKey(activeUser.current),JSON.stringify(config));localRelayOverride.current=config;accountRelays.current?.updateUrls(relayLookupUrls(config,null));setRelays(config);void connect(config);
+ }
+ function usePublicRelays(){
+  if(pubkey!==activeUser.current)return;
+  localStorage.removeItem(accountRelayStorageKey(activeUser.current));localRelayOverride.current=null;accountRelays.current!.updateUrls(relayLookupUrls(null,null));
+  const config=accountConnections(null,accountRelays.current!.state.event);setRelays(config);void connect(config);
+ }
+ async function loadOwnRelays(signal:AbortSignal){
+  const owner=activeUser.current;if(!owner||owner!==pubkey)throw Error('ログインしてください');
+  signal=AbortSignal.any([signal,relayAccountAbort.current.signal]);
+  const known=accountRelays.current!.state.event;
+  let urls=relayLookupUrls(localRelayOverride.current,known);
+  let result=await loadAccountRelayList(owner,urls,signal);
+  // A discovery relay may know an old list: follow its advertised locations before editing.
+  for(let round=0;round<3;round++){
+   const expanded=[...new Set([...urls,...relayLookupUrls(null,result.event)])];
+   if(expanded.length===urls.length)break;
+   if(expanded.length>48){result={...result,partial:true};break}
+   urls=expanded;const next=await loadAccountRelayList(owner,urls,signal);
+   const stale=!!result.event&&(!next.event||isLatestReplaceable(next.event,result.event));
+   result={event:next.event&&isLatestReplaceable(result.event,next.event)?next.event:result.event,partial:result.partial||next.partial||stale};
+   if(round===2)result={...result,partial:true};
+  }
+  if(activeUser.current!==owner)throw Error('ログイン状態が変わりました');
+  const observed=accountRelays.current!.state.event;
+  if(observed&&(!result.event||isLatestReplaceable(result.event,observed)))return {event:observed,partial:true};
+  if(!signal.aborted)accountRelays.current!.observe(result);
+  return result;
+ }
+ const relaySaving=useRef(false);
+ async function saveOwnRelays(base:NostrEvent|null,rows:RelayConfig[],signal:AbortSignal){
+  if(busy||relaySaving.current)throw Error('ほかの送信が完了してから保存してください');
+  const owner=activeUser.current;if(!owner||owner!==pubkey)throw Error('ログインしてください');
+  signal=AbortSignal.any([signal,relayAccountAbort.current.signal]);
+  relaySaving.current=true;setBusy(true);
+  try{
+   const result=await saveAccountRelayList({owner,base,rows,signal,currentOwner:()=>activeUser.current,load:()=>loadOwnRelays(signal),sign:event=>{const extension=(window as Window&{nostr?:{signEvent:(event:EventTemplate)=>Promise<NostrEvent>}}).nostr;if(!extension)throw Error('署名拡張機能に接続してください');return extension.signEvent(event)},publish:event=>publishAccountRelayList(event,[...relayLookupUrls(localRelayOverride.current,base),...rows.map(r=>r.url)],signal)});
+   if(!signal.aborted&&activeUser.current===owner&&result.confirmed)accountRelays.current!.accept(result.event);
+   return result;
+  }finally{relaySaving.current=false;setBusy(false)}
+ }
+
  function sendRelay(ws:WebSocket,frame:string){return connection.current?.send(ws,frame)??false}
 
  function cancelSearch(){searchEpoch.current++;searcher.current.cancel();setSearchChecking(false);setSearchResult(null)}
@@ -172,7 +235,7 @@ export default function App(){
  useEffect(()=>{setPaging({loading:false,error:'',done:false})},[view,profileKey]);
  useEffect(()=>{if(view==='home'&&initialLoading||view==='profile'&&localMutes.mutes.users.includes(profileKey)||(view==='profile'?authorNotes:notes).length>=FEED_LIMIT||!sockets.current.some(s=>s.readyState===1&&canRead(activeRelays.current,s.url))||profileLoading&&view==='profile'||!sentinel.current||paging.loading||paging.done||paging.error||q||view==='saved'||view==='explore'||view==='home'&&tab!=='すべて')return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting))void loadOlder()},{rootMargin:'240px'});observer.observe(sentinel.current);return()=>observer.disconnect()},[view,profileKey,tab,q,paging,notes.length,authorNotes.length,statuses,profileLoading,initialLoading,localMutes.mutes.users]);
  function applyLogin(result:LoginResult,automatic=false){const k=result.key;
-  if(activeUser.current!==k){latestContacts.current=null;setFollows([])}activeUser.current=k;setPubkey(k);if(!automatic||result.destination)setModal('');
+  if(activeUser.current!==k){latestContacts.current=null;setFollows([]);activeUser.current=k;switchRelayAccount(k)}activeUser.current=k;setPubkey(k);if(!automatic||result.destination)setModal('');
   if(!automatic)try{rememberLogin(window.localStorage,true)}catch{}
   sockets.current.filter(s=>s.readyState===1&&canRead(activeRelays.current,s.url)).forEach(s=>sendRelay(s,JSON.stringify(['REQ','contacts',{kinds:[3],authors:[k],limit:1}])));
   if(result.destination==='profile')openProfile(k);else if(result.destination==='notifications')navigate('notifications');
@@ -227,11 +290,11 @@ export default function App(){
  async function changeFollow(base:NostrEvent|null,target:string,follow:boolean,signal:AbortSignal){if(busy||followSaving.current)throw Error('ほかの送信が終わってから操作してください');const owner=activeUser.current;if(!owner||owner!==pubkey)throw Error('ログインしてください');if(!sockets.current.some(s=>s.readyState===1&&canWrite(activeRelays.current,s.url)))throw Error('書き込み用リレーに接続できていません');followSaving.current=true;setBusy(true);try{const result=await saveFollowChange({owner,base,target,follow,signal,currentOwner:()=>activeUser.current,load:()=>loadOwnFollows(signal),sign:e=>(window as any).nostr.signEvent(e),publish:async e=>{const configured=activeRelays.current.filter(r=>r.write);const receipt=await publisher.current.publish(sockets.current.filter(s=>s.readyState===1&&canWrite(activeRelays.current,s.url)),e);return {confirmed:receipt.confirmed,total:configured.length}}});if(result.confirmed&&result.event&&activeUser.current===owner&&isLatestReplaceable(latestContacts.current,result.event)){latestContacts.current=result.event;setFollows(followedKeys(result.event))}return result}finally{followSaving.current=false;setBusy(false)}}
  const profileSaving=useRef(false);
  async function saveOwnProfile(base:EditableProfile|null,draft:ProfileDraft,signal:AbortSignal){if(busy||profileSaving.current)throw Error('ほかの送信が完了してから保存してください');const owner=activeUser.current;if(!owner||owner!==pubkey)throw Error('ログインしてください');if(!sockets.current.some(s=>s.readyState===1&&canWrite(activeRelays.current,s.url)))throw Error('書き込み用のリレーに接続できていません');profileSaving.current=true;setBusy(true);try{const result=await saveProfileEdit({owner,base,draft,signal,currentOwner:()=>activeUser.current,load:()=>loadOwnProfile(signal),sign:e=>(window as any).nostr.signEvent(e),publish:async e=>{const configured=activeRelays.current.filter(r=>r.write);const targets=sockets.current.filter(s=>s.readyState===1&&canWrite(activeRelays.current,s.url));const receipt=await publisher.current.publish(targets,e);return {confirmed:receipt.confirmed,total:configured.length}}});if(result.confirmed&&activeUser.current===owner){const profile=readProfile(result.profile.event);if(profile)setProfiles(old=>newerProfile(old[owner],profile)?retainProfiles(old,owner,profile,profilePins.current):old)}return result}finally{profileSaving.current=false;setBusy(false)}}
- const lastModal=useRef('about');
- useEffect(()=>{if(modal)lastModal.current=modal},[modal]);
+ const [lastModal,setLastModal]=useState('about');
+ if(modal&&modal!==lastModal)setLastModal(modal);
  const relayEditor=useRef<RelayEditorHandle>(null);
  const [relayDiscovering,setRelayDiscovering]=useState(false);
- const displayModal=modal||lastModal.current;
+ const displayModal=modal||lastModal;
  const online=Object.values(statuses).filter(x=>x==='接続済み').length;
  const enabledCount=relays.filter(r=>r.read||r.write).length;
  const connectionLabel=online?(online<enabledCount?`一部接続 ${online}/${enabledCount}`:'接続済み'):'未接続';
@@ -252,6 +315,6 @@ export default function App(){
  <M3eNavBar className="mobile-nav">{nav.map(({id,icon:Icon,label})=><M3eNavItem key={id} selected={view===id&&!modal} onClick={()=>{goTo(id)}} aria-label={label}><Icon slot="icon" size={24}/>{label}</M3eNavItem>)}</M3eNavBar>
  {zapNote&&<M3eDialog open dismissible closeLabel="閉じる" onClosed={()=>setZapNote(null)} aria-label="Zap"><X slot="close-icon"/><h2 slot="header">Zap</h2><ZapPanel event={{id:zapNote.id,pubkey:zapNote.pubkey,tags:zapNote.tags||[]}} profile={profiles[zapNote.pubkey]||{}} pubkey={pubkey} readRelays={zapReadRelays} signEvent={async unsigned=>{if(activeUser.current!==pubkey)throw Error('ログイン状態が変わりました');const event=await (window as any).nostr.signEvent(unsigned);if(activeUser.current!==pubkey)throw Error('ログイン状態が変わりました');return event}}/></M3eDialog>}
  {toast&&<div className="toast" role="status"><Check size={18}/>{toast}</div>}
- <M3eDialog open={!!modal} dismissible closeLabel="閉じる" onClosed={()=>{if(displayModal==='login')loginSession.current.cancelDestination();setModal('')}} aria-label="設定と接続"><X slot="close-icon"/>{displayModal==='profile-edit'?<><h2 slot="header">プロフィールを編集</h2>{modal==='profile-edit'&&pubkey&&<ProfileEditor key={pubkey} load={loadOwnProfile} save={saveOwnProfile} onSaved={()=>{notify('プロフィールを保存しました');setModal('')}}/>}</>:displayModal==='login'?<><h2 slot="header">ログイン</h2><p>Nostr署名拡張機能（NIP-07）が見つかりません。対応ブラウザで開いてください。</p><M3eButton variant="filled" className="primary-action" disabled={loggingIn} onClick={()=>void login()}>もう一度確認</M3eButton></>:(displayModal==='relays'||displayModal==='author-relays')?<><div slot="header" className="relay-dialog-header"><h2>{displayModal==='author-relays'?'この人のリレー':'接続'}</h2>{displayModal==='author-relays'&&<M3eIconButton aria-label={relayDiscovering?'リレーを取得中':'リレーを再取得'} disabled={busy||relayDiscovering} onClick={()=>relayEditor.current?.reload()}><RefreshCw aria-hidden="true"/></M3eIconButton>}</div>{modal===displayModal&&<RelayEditor ref={relayEditor} onDiscoveringChange={setRelayDiscovering} key={displayModal+':'+(displayModal==='author-relays'?profileKey:pubkey)} discoveryLabel={displayModal==='author-relays'?'この人':'自分'} discoveryPurpose={displayModal==='author-relays'?'author':'self'} onDiscover={(displayModal==='author-relays'?profileKey:pubkey)?signal=>relayDiscovery.current.start(sockets.current,activeRelays.current.filter(r=>r.read).map(r=>r.url),displayModal==='author-relays'?profileKey:pubkey,signal):undefined} value={relays} statuses={statuses} busy={busy} onReconnect={url=>{connection.current?.restart(url)}} onSave={config=>{localStorage.setItem(RELAY_STORAGE,JSON.stringify(config));setRelays(config);void connect(config);setModal('')}}/>}</>:displayModal==='settings'?<><h2 slot="header">設定</h2><M3eActionList><M3eListAction onClick={()=>setDark(!dark)}>{dark?<Moon slot="leading"/>:<Sun slot="leading"/>}<span>{dark?'ダークモード':'ライトモード'}</span></M3eListAction><M3eListAction onClick={()=>setModal('relays')}><Radio slot="leading"/><span>リレー接続</span><ArrowUpRight slot="trailing" aria-hidden="true"/></M3eListAction><M3eListAction onClick={()=>pubkey?openProfile(pubkey):void login()}><Link slot="leading"/><span>{pubkey?short(pubkey):'署名拡張機能に接続'}</span></M3eListAction><M3eListAction onClick={()=>setModal('about')}>nost.ingについて</M3eListAction>{(pubkey||loggingIn)&&<M3eListAction onClick={()=>{try{rememberLogin(window.localStorage,false)}catch{}loginSession.current.logout();setLoggingIn(false);activeUser.current='';setPubkey('');setFollows([]);notify('接続情報を解除しました')}}><LogOut slot="leading"/>{pubkey?'ログアウト':'接続を中止'}</M3eListAction>}</M3eActionList><section className="performance-settings"><label><input type="checkbox" checked={lightweight} onChange={e=>setLightweight(e.target.checked)}/>軽量表示（試験・このタブのみ）</label><p>ホームとプロフィールで画面外の投稿を省略します。ページ内検索や読み上げを使う場合はオフにしてください。Tab操作・画面幅の変更時には通常表示へ戻ります。</p></section><MuteSettings key={pubkey||'guest'} {...localMutes}/></>:displayModal==='repost'?<><h2 slot="header">このノートをリポスト？</h2><p>公開リレーに送信されます。削除しても他のリレーや端末に残る場合があります。</p><M3eButton variant="filled" className="primary-action" disabled={busy} onClick={confirmRepost}>署名してリポスト</M3eButton></>:<><h2 slot="header">nost.ingについて</h2><p>公開リレーに接続するNostrクライアントです。</p><p>UI：M3E（matraic、MITライセンス）のWeb Components。Google公式製ではありません。</p><p>対応：公開ノート、返信、リアクション、リポスト、ローカルブックマーク、NIP-07署名。画像・動画表示に対応。DM・リモート署名は未対応です。通知は設定した読み取りリレーの範囲で取得します。</p><p>公開投稿は取り消せない場合があります。ブックマーク・テーマ・リレー設定・下書き・ミュートをこのブラウザに保存します。下書きとミュートはアカウント別です。プロフィール画像・投稿画像は配信元から読み込み、動画は操作後に読み込みます。配信元にはIPアドレスが伝わります。</p></>}</M3eDialog>
+ <M3eDialog open={!!modal} dismissible closeLabel="閉じる" onClosing={()=>{if(modal==='relays')setModal('')}} onClosed={()=>{if(displayModal==='login')loginSession.current.cancelDestination();setModal('')}} aria-label="設定と接続"><X slot="close-icon"/>{displayModal==='profile-edit'?<><h2 slot="header">プロフィールを編集</h2>{modal==='profile-edit'&&pubkey&&<ProfileEditor key={pubkey} load={loadOwnProfile} save={saveOwnProfile} onSaved={()=>{notify('プロフィールを保存しました');setModal('')}}/>}</>:displayModal==='login'?<><h2 slot="header">ログイン</h2><p>Nostr署名拡張機能（NIP-07）が見つかりません。対応ブラウザで開いてください。</p><M3eButton variant="filled" className="primary-action" disabled={loggingIn} onClick={()=>void login()}>もう一度確認</M3eButton></>:(displayModal==='relays'||displayModal==='author-relays')?<><div slot="header" className="relay-dialog-header"><h2>{displayModal==='author-relays'?'この人のリレー':'接続'}</h2>{displayModal==='author-relays'&&<M3eIconButton aria-label={relayDiscovering?'リレーを取得中':'リレーを再取得'} disabled={busy||relayDiscovering} onClick={()=>relayEditor.current?.reload()}><RefreshCw aria-hidden="true"/></M3eIconButton>}</div>{modal===displayModal&&displayModal==='relays'&&pubkey&&<><AccountRelayEditor key={pubkey} load={loadOwnRelays} save={saveOwnRelays}/><h3>このブラウザの接続</h3><p className="relay-hint">ここでの変更は公開されません。保存すると公開一覧からの自動設定を上書きします。</p><M3eButton disabled={busy} onClick={usePublicRelays}>公開一覧に合わせる</M3eButton></>}{modal===displayModal&&<RelayEditor ref={relayEditor} onDiscoveringChange={setRelayDiscovering} key={displayModal+':'+(displayModal==='author-relays'?profileKey:pubkey)+':'+JSON.stringify(relays)} discoveryLabel={displayModal==='author-relays'?'この人':'自分'} discoveryPurpose={displayModal==='author-relays'?'author':'self'} onDiscover={displayModal==='author-relays'&&profileKey?signal=>relayDiscovery.current.start(sockets.current,activeRelays.current.filter(r=>r.read).map(r=>r.url),profileKey,signal):undefined} value={relays} statuses={statuses} busy={busy} onReconnect={url=>{connection.current?.restart(url)}} onSave={saveLocalRelays}/>}</>:displayModal==='settings'?<><h2 slot="header">設定</h2><M3eActionList><M3eListAction onClick={()=>setDark(!dark)}>{dark?<Moon slot="leading"/>:<Sun slot="leading"/>}<span>{dark?'ダークモード':'ライトモード'}</span></M3eListAction><M3eListAction onClick={()=>setModal('relays')}><Radio slot="leading"/><span>リレー接続</span><ArrowUpRight slot="trailing" aria-hidden="true"/></M3eListAction><M3eListAction onClick={()=>pubkey?openProfile(pubkey):void login()}><Link slot="leading"/><span>{pubkey?short(pubkey):'署名拡張機能に接続'}</span></M3eListAction><M3eListAction onClick={()=>setModal('about')}>nost.ingについて</M3eListAction>{(pubkey||loggingIn)&&<M3eListAction onClick={()=>{try{rememberLogin(window.localStorage,false)}catch{}loginSession.current.logout();setLoggingIn(false);activeUser.current='';switchRelayAccount('');setPubkey('');setFollows([]);notify('接続情報を解除しました')}}><LogOut slot="leading"/>{pubkey?'ログアウト':'接続を中止'}</M3eListAction>}</M3eActionList><section className="performance-settings"><label><input type="checkbox" checked={lightweight} onChange={e=>setLightweight(e.target.checked)}/>軽量表示（試験・このタブのみ）</label><p>ホームとプロフィールで画面外の投稿を省略します。ページ内検索や読み上げを使う場合はオフにしてください。Tab操作・画面幅の変更時には通常表示へ戻ります。</p></section><MuteSettings key={pubkey||'guest'} {...localMutes}/></>:displayModal==='repost'?<><h2 slot="header">このノートをリポスト？</h2><p>公開リレーに送信されます。削除しても他のリレーや端末に残る場合があります。</p><M3eButton variant="filled" className="primary-action" disabled={busy} onClick={confirmRepost}>署名してリポスト</M3eButton></>:<><h2 slot="header">nost.ingについて</h2><p>公開リレーに接続するNostrクライアントです。</p><p>UI：M3E（matraic、MITライセンス）のWeb Components。Google公式製ではありません。</p><p>対応：公開ノート、返信、リアクション、リポスト、ローカルブックマーク、NIP-07署名。画像・動画表示に対応。DM・リモート署名は未対応です。通知は設定した読み取りリレーの範囲で取得します。</p><p>公開投稿は取り消せない場合があります。ブックマーク・テーマ・リレー設定・下書き・ミュートをこのブラウザに保存します。下書き・ミュート・接続設定はアカウント別です。プロフィール画像・投稿画像は配信元から読み込み、動画は操作後に読み込みます。配信元にはIPアドレスが伝わります。</p></>}</M3eDialog>
  </div></M3eTheme></QuoteOpenContext.Provider></QuoteContext.Provider></MentionContext.Provider></DraftOwnerContext.Provider></MuteContext.Provider>
 }

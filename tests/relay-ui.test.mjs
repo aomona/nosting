@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const editor=fs.readFileSync('components/relay-editor.tsx','utf8');
+const app=fs.readFileSync('components/petal-app.tsx','utf8');
+assert.ok(editor.includes("discoveryPurpose!=='author'&&<>"));
+assert.ok(editor.includes("discoveryPurpose!=='author'||r.write"));
+assert.ok(editor.includes('read:true,write:false'));
+assert.equal((editor.match(/IPアドレス/g)||[]).length,1);
+assert.ok(!editor.includes('NIP-11のNIP-50'));
+assert.ok(editor.includes("discovery.current?.abort()"));
+assert.ok(app.includes('aria-label="プロフィールの操作"'));
+assert.ok(app.includes("onSelect={()=>setModal('author-relays')}"));
+assert.ok(app.includes('modal===displayModal&&<RelayEditor'));
+assert.ok(app.includes('disabled={!localMutes.ready}'));
+assert.ok(!app.includes('参照する公開リレー一覧'));
+console.log('PASS concise relay UI: dedicated author mode, write targets only, staged read-only additions, one privacy notice, accessible profile menu, discovery cancelled on close');

@@ -13,4 +13,8 @@ assert.ok(app.includes("onSelect={()=>setModal('author-relays')}"));
 assert.ok(app.includes('modal===displayModal&&<RelayEditor'));
 assert.ok(app.includes('disabled={!localMutes.ready}'));
 assert.ok(!app.includes('参照する公開リレー一覧'));
+assert.ok(!app.includes('className="profile-tools"'));
+assert.ok(app.includes('action={<>{profileKey!==pubkey?<FollowButton'));
+assert.ok(app.includes('<DropdownMenu modal={false}>'));
+assert.ok(app.includes('side="bottom" align="end"'));
 console.log('PASS concise relay UI: dedicated author mode, write targets only, staged read-only additions, one privacy notice, accessible profile menu, discovery cancelled on close');

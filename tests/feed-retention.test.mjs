@@ -1,0 +1,5 @@
+import fs from 'node:fs/promises';import ts from 'typescript';import vm from 'node:vm';import assert from 'node:assert/strict';
+const out={};vm.runInNewContext(ts.transpileModule(await fs.readFile('lib/feed-retention.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:out});
+const {retainFeed,retainProfiles}=out;const old=[{id:'a',created_at:5},{id:'b',created_at:4}];assert.equal(retainFeed(old,[old[0]]),old);assert.equal(retainFeed(old,[{id:'c',created_at:6}],2),old);const next=retainFeed(old,[{id:'c',created_at:6},{id:'d',created_at:3}],3);assert.equal(next.map(n=>n.id).join(','),'c,a,b');assert.equal(next.length,3);assert.equal(old.length,2);
+const profiles=retainProfiles({a:1,b:2,c:3},'d',4,new Set(['a']),3);assert.equal(Object.keys(profiles).length,3);assert.equal(profiles.a,1);assert.equal(profiles.d,4);assert.equal(profiles.b,undefined);assert.equal(Object.keys(retainProfiles({a:1,b:2,c:3},'d',4,new Set(['a','b','c']),2)).length,2);
+console.log('PASS bounded feed retention without eviction of read history, dedup, sort, bounded profile cache');

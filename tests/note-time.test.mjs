@@ -1,0 +1,11 @@
+process.env.TZ ||= 'UTC';
+import fs from 'node:fs/promises';import ts from 'typescript';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=ts.transpileModule(await fs.readFile('lib/note-time.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const out={};vm.runInNewContext(source,{exports:out,Date,Number,Math});const {formatNoteTime:f,nextNoteTimeUpdate:n}=out;
+const now=new Date('2026-11-10T10:00:00Z').getTime()/1000;
+for(const [age,label]of [[0,'たった今'],[9,'たった今'],[10,'10秒前'],[59,'59秒前'],[60,'1分前'],[3599,'59分前'],[3600,'1時間前'],[86399,'23時間前'],[86400,'1日前'],[604799,'6日前'],[604800,'11/3'],[-60,'たった今']])assert.equal(f(now-age,now),label);
+assert.equal(f(new Date('2025-11-10T10:00:00Z').getTime()/1000,now),'2025/11/10');
+assert.equal(f(now+120,now),process.env.TZ==='Asia/Tokyo'?'11/10 19:02':'11/10 10:02');
+assert.equal(f(now,0),'—');for(const invalid of [-1,NaN,Infinity,1e20])assert.equal(f(invalid,now),'—');
+assert.equal(n(now,now),10000);assert.equal(n(now-59,now),1000);assert.equal(n(now-60,now),60000);assert.equal(n(now-3599,now),1000);assert.equal(n(now-100000,now),60000);
+const midnight=new Date('2026-11-10T00:30:00Z').getTime()/1000;assert.equal(f(midnight,midnight+8*86400),'11/10');
+console.log('PASS note time: second/minute/hour/day/week/year boundaries, future skew, hydration placeholder, invalid dates, local timezone, bounded refresh');

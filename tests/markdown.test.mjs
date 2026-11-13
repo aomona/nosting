@@ -1,0 +1,83 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import ts from 'typescript';
+import {pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+const dir=await fs.mkdtemp(resolve('.sites-runtime/markdown-test-'));
+async function compile(source,name){
+ let code=ts.transpileModule(await fs.readFile(source,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ code=code.replaceAll("'./mentions'","'./mentions.mjs'").replaceAll("'../components/mention'","'./mention.mjs'").replace("import './mention.css';",'').replaceAll("'./custom-emoji'","'./custom-emoji-lib.mjs'").replaceAll("'../lib/custom-emoji'","'./custom-emoji-lib.mjs'").replaceAll("'../components/custom-emoji'","'./custom-emoji-component.mjs'").replace("import './custom-emoji.css';",'').replaceAll("'./note-media'","'./note-media.mjs'").replaceAll("'../lib/markdown-media'","'./markdown-media.mjs'").replaceAll("'./markdown-media'","'./markdown-media.mjs'").replaceAll("'../lib/compiled-markdown'","'./compiled-markdown.mjs'").replace("import './markdown-content.css';",'');
+ await fs.writeFile(`${dir}/${name}.mjs`,code);
+}
+try {
+ await compile('lib/mentions.ts','mentions');await compile('components/mention.tsx','mention');
+ await compile('lib/custom-emoji.ts','custom-emoji-lib');await compile('components/custom-emoji.tsx','custom-emoji-component');
+ await compile('lib/note-media.ts','note-media');await compile('lib/markdown-media.ts','markdown-media');await compile('lib/compiled-markdown.tsx','compiled-markdown');await compile('components/markdown-content.tsx','markdown-content');
+ const {markdownMedia,safeMarkdownLink}=await import(pathToFileURL(`${dir}/markdown-media.mjs`));
+ const {default:Markdown}=await import(pathToFileURL(`${dir}/markdown-content.mjs`));
+ const render=content=>renderToStaticMarkup(React.createElement(Markdown,{content,tags:[]}));
+ const url='https://example.com/a.png';
+ const {nip19}=await import('nostr-tools');const key='a'.repeat(64),npub=nip19.npubEncode(key),nprofile=nip19.nprofileEncode({pubkey:key,relays:['wss://untrusted.invalid']});
+ const {mentionKey}=await import(pathToFileURL(`${dir}/mentions.mjs`));assert.equal(mentionKey('nostr:'+npub),key);assert.equal(mentionKey('nostr:'+nprofile),key);assert.equal(mentionKey('nostr:nsec1bad'),null);assert.equal(mentionKey('nostr:'+npub+'bad'),null);
+ assert.doesNotMatch(render('nostr:'+npub+'#fragment'),/petal-mention/);assert.doesNotMatch(render('https://example.com/#nostr:'+npub),/petal-mention/);
+
+ assert.match(render('Hello nostr:'+npub),/class="petal-mention"/);assert.match(render('nostr:'+nprofile),/@aaaaaaaa…aaaa/);
+ assert.doesNotMatch(render('`nostr:'+npub+'`'),/petal-mention/);assert.doesNotMatch(render('```\nnostr:'+npub+'\n```'),/petal-mention/);
+ assert.equal((render('[alias](nostr:'+npub+')').match(/petal-mention/g)||[]).length,1);
+ assert.doesNotMatch(render('[nostr:'+npub+'](https://example.com)'),/petal-mention/);
+ assert.doesNotMatch(render('[nostr:'+npub+'](https://example.com)'),/<a[^>]*>.*<a/);
+ const manyMentions=Array.from({length:45},(_,i)=>{const uri='nostr:'+nip19.npubEncode(i.toString(16).padStart(64,'0'));return i%2?'[label-'+i+']('+uri+')':uri}).join('\n\n');
+ const limited=render(manyMentions);assert.equal((limited.match(/class="petal-mention"/g)||[]).length,32);assert.match(limited,/label-33/);assert.ok(limited.includes('nostr:'+nip19.npubEncode((34).toString(16).padStart(64,'0'))));
+ const oneParagraph=render(Array(40).fill('nostr:'+npub).join(' '));assert.equal((oneParagraph.match(/class="petal-mention"/g)||[]).length,32);
+
+
+ const {emojiMap,emojiParts}=await import(pathToFileURL(`${dir}/custom-emoji-lib.mjs`));
+ const tags=[['emoji','ok','https://example.com/ok.png']];
+ const em=content=>renderToStaticMarkup(React.createElement(Markdown,{content,tags}));
+ assert.match(em('Hi :ok:'),/class="petal-custom-emoji"/);assert.match(em('**:ok:**'),/<strong><img/);
+ assert.doesNotMatch(em('`:ok:`'),/<img/);assert.doesNotMatch(em('```\n:ok:\n```'),/<img/);assert.doesNotMatch(em(':unknown:'),/<img/);
+ assert.doesNotMatch(renderToStaticMarkup(React.createElement(Markdown,{content:':ok:',tags:[['emoji','ok','javascript:alert(1)']]})),/<img/);
+ assert.equal(Object.keys(emojiMap([['emoji','x','https://example.com/1'],['emoji','x','https://example.com/2']])).length,0);
+ assert.equal(Object.keys(emojiMap([['emoji','bad space',url],['emoji','x','http://example.com/x'],['emoji','y','https://127.0.0.1/x']])).length,0);
+ assert.equal(emojiParts(':constructor:',{}).length,1);
+ assert.match(em(':ok:'),/https:\/\/example.com\/ok.png/);assert.match(renderToStaticMarkup(React.createElement(Markdown,{content:':ok:',tags:[['emoji','ok','https://example.com/new.png']]})),/new.png/);
+
+ assert.equal(markdownMedia(`![alt](${url})\n\n${url}`).items.length,1);
+ assert.equal(markdownMedia(`![alt][p]\n\n[p]: ${url}`).items.length,1);
+ assert.equal(markdownMedia('`'+url+'`\n\n```\n'+url+'\n```').items.length,0);
+ assert.match(render(`[label](${url})`),/href="https:\/\/example.com\/a.png"/);
+ assert.match(render('`'+url+'`'),/https:\/\/example.com\/a.png/);
+ assert.doesNotMatch(render(`![alt](${url})\n\n${url}`),/<img|<video/);
+ assert.equal(markdownMedia('test',[['content-warning','']]).sensitive,true);
+ for(const input of ['javascript:alert(1)','JaVaScRiPt:alert(1)','data:text/html,test','//evil.com','/test','https://user:password@example.com'])assert.equal(safeMarkdownLink(input),undefined);
+ const attack=render('[click](javascript:alert%281%29)\n\n<img src=x onerror=alert(1)>\n<script>alert(1)</script>');
+ assert.doesNotMatch(attack,/javascript:|onerror|<script|<img/);
+ const html=render('# Title\n\n**bold**\n\n- one\n- two\n\n| a | b |\n|---|---|\n| c | d |\n\nfirst\nsecond');
+ for(const tag of ['<h1>','<strong>','<ul>','<table>','<br'])assert.ok(html.includes(tag),tag);
+ const many=Array.from({length:7},(_,i)=>`![${i}](https://example.com/${i}.png)`).join('\n');
+ assert.equal(markdownMedia(many).items.length,6);assert.match(render(many),/href="https:\/\/example.com\/6.png"/);
+ const {compileMarkdown,clearMarkdownCache,markdownCacheStats,MARKDOWN_CACHE_LIMITS}=await import(pathToFileURL(`${dir}/compiled-markdown.mjs`));
+ clearMarkdownCache();
+ const first=compileMarkdown('**one**',[]);assert.equal(compileMarkdown('**one**',[['e','ignored']]),first);
+ assert.equal(markdownCacheStats().compiles,1);
+ assert.notEqual(compileMarkdown('**one**',[['content-warning','']]),first);
+ assert.equal(compileMarkdown('**one**',[['content-warning','']]).sensitive,true);
+ for(let i=0;i<MARKDOWN_CACHE_LIMITS.entries+1;i++)compileMarkdown('unique '+i);
+ assert.equal(markdownCacheStats().entries,MARKDOWN_CACHE_LIMITS.entries);
+ assert.ok(markdownCacheStats().chars<=MARKDOWN_CACHE_LIMITS.chars);assert.ok(markdownCacheStats().nodes<=MARKDOWN_CACHE_LIMITS.nodes);
+ const count=markdownCacheStats().compiles;compileMarkdown('**one**');assert.equal(markdownCacheStats().compiles,count+1);
+ clearMarkdownCache();
+ compileMarkdown('small',[['imeta','ignored '+ 'x'.repeat(MARKDOWN_CACHE_LIMITS.chars)]]);
+ assert.equal(markdownCacheStats().entries,0,'oversized key is not cached');
+ for(let i=0;i<70;i++)compileMarkdown('node budget '+i+'\n\n'+ '- item\n'.repeat(500));
+ assert.ok(markdownCacheStats().nodes<=MARKDOWN_CACHE_LIMITS.nodes);assert.ok(markdownCacheStats().entries<70,'node budget evicts');
+ clearMarkdownCache();
+ const samples=Array.from({length:500},(_,i)=>'# Note '+i+'\n\n**bold** and [link](https://example.com)\n\n- item\n- two');
+ const cold=performance.now();samples.forEach(s=>compileMarkdown(s));const coldMs=performance.now()-cold;
+ const warm=performance.now();samples.forEach(s=>compileMarkdown(s));const warmMs=performance.now()-warm;
+ assert.equal(markdownCacheStats().compiles,500);assert.equal(markdownCacheStats().hits,500);
+ console.log(JSON.stringify({test:'500 unique compiled bodies cold/warm cache lookup (not DOM)',coldMs,warmMs,cache:markdownCacheStats()}));
+ console.log('PASS Markdown: formatting, breaks, code preservation, labelled links, AST image/reference extraction, dedup, gallery cap, NIP36 flag, raw HTML and dangerous URL rejection, no direct images');
+} finally { await fs.rm(dir,{recursive:true,force:true}); }

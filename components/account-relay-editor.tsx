@@ -27,7 +27,7 @@ export default function AccountRelayEditor({load, save}: Props) {
       if (controller.signal.aborted) return;
       setBase(result.event); setRows(editableRelayRows(result.event));
       if (result.partial) throw Error('一部のリレーが未応答です。再読み込みしてから編集してください');
-      setReady(true); setStatus(result.event ? '公開一覧を取得しました' : '公開一覧は未設定です');
+      setReady(true); setStatus(result.event ? (result.event.tags.some(tag => tag[0] === 'r') ? '' : '受信先・投稿先は設定されていません') : '公開一覧は未設定です');
     } catch (e) {if (!controller.signal.aborted) setError(e instanceof Error ? e.message : '取得できませんでした');}
     finally {if (!controller.signal.aborted) {lock.current = false; setBusy(false);}}
   }
@@ -49,15 +49,14 @@ export default function AccountRelayEditor({load, save}: Props) {
     finally {if (!controller.signal.aborted) {lock.current = false; setBusy(false);}}
   }
   return <section className="relay-editor" aria-label="アカウントの公開リレー" aria-busy={busy}>
-    <h3>アカウントの公開リレー</h3>
-    <p className="relay-hint">受信先はメンション、投稿先は自分の投稿に使います。各2〜4件が目安です。</p>
     {rows.map((row, index) => <div className="relay-config" key={row.url}>
       <div className="relay-config-head"><span>{row.url.replace('wss://', '').replace(/\/$/, '')}</span><M3eIconButton aria-label={`${row.url}を公開一覧から削除`} disabled={busy || !ready} onClick={() => {setRows(rows.filter((_, i) => i !== index)); setEmptyConfirmed(false);}}><Trash2/></M3eIconButton></div>
-      <div className="relay-permissions">{(['read', 'write'] as const).map(permission => <label key={permission}><M3eCheckbox checked={row[permission]} disabled={busy || !ready} aria-label={`${row.url} ${permission === 'read' ? 'メンション受信先' : '投稿先'}`} onChange={e => setRows(rows.map((r, i) => i === index ? {...r, [permission]: (e.target as HTMLElement & {checked: boolean}).checked} : r))}/>{permission === 'read' ? '受信先（read）' : '投稿先（write）'}</label>)}</div>
+      <div className="relay-permissions">{(['read', 'write'] as const).map(permission => <label key={permission}><M3eCheckbox checked={row[permission]} disabled={busy || !ready} aria-label={`${row.url} ${permission === 'read' ? 'メンション受信先' : '投稿先'}`} onChange={e => setRows(rows.map((r, i) => i === index ? {...r, [permission]: (e.target as HTMLElement & {checked: boolean}).checked} : r))}/>{permission === 'read' ? 'メンション受信先' : '投稿先'}</label>)}</div>
     </div>)}
     {ready && <><div className="relay-add"><input aria-label="公開リレーのURL" placeholder="wss://relay.example.com" value={url} disabled={busy} onChange={e => setUrl(e.target.value)} onKeyDown={e => {if (e.key === 'Enter' && !busy) add();}}/><M3eIconButton aria-label="公開リレーを追加" disabled={busy || !url.trim() || rows.length >= 16} onClick={add}><Plus/></M3eIconButton></div>
       {!rows.length && <label><M3eCheckbox checked={emptyConfirmed} disabled={busy} onChange={e => setEmptyConfirmed((e.target as HTMLElement & {checked: boolean}).checked)}/>受信先・投稿先なしとして公開する</label>}</>}
     {error && <p role="alert">{error}</p>}{(busy || status) && <p role="status">{busy ? '確認中…' : status}</p>}
+    <p className="relay-hint">確認・接続先にはIPアドレスが伝わります。</p>
     <M3eButton variant="filled" disabled={busy || !ready || !rows.length && !emptyConfirmed} onClick={() => void submit()}>署名して公開保存</M3eButton>
     <M3eButton disabled={busy} onClick={() => {if (!ready || window.confirm('入力を破棄して公開一覧を読み直しますか？')) void reload();}}>再読み込み</M3eButton>
   </section>;

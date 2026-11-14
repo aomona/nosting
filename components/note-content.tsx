@@ -1,10 +1,11 @@
 'use client';
-import {memo,useMemo,useState,type CSSProperties} from 'react';
+import {memo,useCallback,useEffect,useId,useMemo,useRef,useState,type CSSProperties} from 'react';
 import {M3eCard} from '@m3e/react/card';
 import {M3eButton} from '@m3e/react/button';
 import {M3eIconButton} from '@m3e/react/icon-button';
 import {M3eDialog} from '@m3e/react/dialog';
-import {Expand,ImageOff,Play,X,EyeOff} from 'lucide-react';
+import {ChevronLeft,ChevronRight,Expand,ImageOff,Play,X,EyeOff} from 'lucide-react';
+import {mediaScrollTarget} from '../lib/media-scroll';
 import {mediaAspectRatio,type NoteMedia} from '../lib/note-media';
 import {compileMarkdown} from '../lib/compiled-markdown';
 import MarkdownContent from './markdown-content';
@@ -22,16 +23,38 @@ export function Media({item,onExpand}:{item:NoteMedia;onExpand:(src:NoteMedia)=>
 
 function MediaGroup({items,onExpand}:{items:NoteMedia[];onExpand:(src:NoteMedia)=>void}){
  const scrollable=items.length>1;
- return <div className={'petal-note-media'+(scrollable?' petal-media-strip':'')}
+ const strip=useRef<HTMLDivElement>(null),id=useId();
+ const [navigation,setNavigation]=useState({previous:false,next:false});
+ const updateNavigation=useCallback(()=>{
+  const element=strip.current;if(!element)return;
+  const previous=element.scrollLeft>1,next=element.scrollLeft<element.scrollWidth-element.clientWidth-1;
+  setNavigation(old=>old.previous===previous&&old.next===next?old:{previous,next});
+ },[]);
+ useEffect(()=>{
+  const element=strip.current;if(!scrollable||!element)return;
+  const observer=new ResizeObserver(updateNavigation);observer.observe(element);
+  return ()=>observer.disconnect();
+ },[scrollable,items.length,updateNavigation]);
+ function move(direction:-1|1){
+  const element=strip.current;if(!element||!(direction===-1?navigation.previous:navigation.next))return;
+  const left=element.getBoundingClientRect().left;
+  const offsets=Array.from(element.children,child=>child.getBoundingClientRect().left-left+element.scrollLeft);
+  element.scrollTo({left:mediaScrollTarget(element.scrollLeft,offsets,element.scrollWidth-element.clientWidth,direction),behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+ }
+ return <div className="petal-media-group" onClick={e=>e.stopPropagation()}>
+  {scrollable&&<>
+   <M3eIconButton className="petal-media-nav petal-media-previous" variant="tonal" aria-label="前の画像・動画" aria-controls={id} disabledInteractive={!navigation.previous} onClick={()=>move(-1)}><ChevronLeft aria-hidden="true"/></M3eIconButton>
+   <M3eIconButton className="petal-media-nav petal-media-next" variant="tonal" aria-label="次の画像・動画" aria-controls={id} disabledInteractive={!navigation.next} onClick={()=>move(1)}><ChevronRight aria-hidden="true"/></M3eIconButton>
+  </>}
+  <div ref={strip} id={id} className={'petal-note-media'+(scrollable?' petal-media-strip':'')} onScroll={scrollable?updateNavigation:undefined}
   role={scrollable?'group':undefined} aria-label={scrollable?'投稿の画像・動画（横スクロール）':undefined} tabIndex={scrollable?0:undefined}
-  onClick={e=>e.stopPropagation()}
   onFocus={scrollable?e=>{
    // Native focus scrolling can leave a partially visible button clipped by snap.
    // Only adjust keyboard focus: moving a card during pointerdown cancels clicks.
    if(e.target!==e.currentTarget&&e.target.matches(':focus-visible'))e.target.closest('.petal-media-card')?.scrollIntoView({block:'nearest',inline:'nearest'});
   }:undefined}>
   {items.map(item=><Media key={item.url} item={item} onExpand={onExpand}/>)}
- </div>;
+ </div></div>;
 }
 
 function Content({content,tags,noteId,quoteDepth}:{content:string;tags:string[][];noteId:string;quoteDepth:number}){

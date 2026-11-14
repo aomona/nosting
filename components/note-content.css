@@ -1,6 +1,15 @@
 /* Keep intrinsic media dimensions out of both the post flex row and the
    M3E card's shadow-root flex layout. The default slot has no sizing rule. */
 .petal-note-body { min-width: 0; max-width: 100%; }
+.petal-media-group { position: relative; min-width: 0; max-width: 100%; }
+.petal-media-nav { position: absolute; top: calc(50% - 4px); transform: translateY(-50%); z-index: 1; opacity: 0; pointer-events: none; }
+.petal-media-previous { left: 8px; }
+.petal-media-next { right: 8px; }
+.petal-media-group:focus-within > .petal-media-nav { opacity: 1; pointer-events: auto; }
+.petal-media-nav[aria-disabled="true"] { cursor: default; }
+@media (hover: hover) {
+ .petal-media-group:hover > .petal-media-nav { opacity: 1; pointer-events: auto; }
+}
 .petal-note-media { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 12px 0; min-width: 0; width: 100%; }
 /* Leave a glimpse of the next card, with native touch/trackpad/keyboard scrolling.
    Contain intrinsic widths here, including inside nested Markdown and quotes. */

@@ -33,8 +33,8 @@ with tempfile.TemporaryDirectory(prefix='nosting-media-') as tmp, sync_playwrigh
  video = open(video_path, 'rb').read()
  browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'), headless=True, args=['--no-sandbox'])
  results = []
- for width, height in [(1280, 900), (390, 844), (320, 740)]:
-  context = browser.new_context(viewport={'width':width, 'height':height}, has_touch=width<600, is_mobile=width<600, reduced_motion='reduce')
+ for width, height, motion in [(1280, 900, 'reduce'), (390, 844, 'reduce'), (320, 740, 'reduce'), (1280, 900, 'no-preference')]:
+  context = browser.new_context(viewport={'width':width, 'height':height}, has_touch=width<600, is_mobile=width<600, reduced_motion=motion)
   page = context.new_page()
   page.set_default_timeout(10000)
   errors, external, requested = [], [], []
@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix='nosting-media-') as tmp, sync_playwrigh
   strips = page.locator('#mixed .petal-media-strip')
   assert strips.count() == 2
   assert [strips.nth(i).locator('.petal-media-card').count() for i in range(2)] == [2, 4]
-  assert page.locator('#mixed .petal-markdown').evaluate("e=>Array.from(e.children).map(n=>n.classList.contains('petal-note-media')?'media':n.textContent)") == ['画像の前', 'media', '画像の間', 'media', '画像の後']
+  assert page.locator('#mixed .petal-markdown').evaluate("e=>Array.from(e.children).map(n=>n.classList.contains('petal-media-group')?'media':n.textContent)") == ['画像の前', 'media', '画像の間', 'media', '画像の後']
   assert page.locator('#mixed img').first.get_attribute('alt') == '横長の画像'
   assert page.locator('#mixed img').nth(1).get_attribute('width') == '600'
   assert page.locator('#mixed img').nth(2).get_attribute('src').endswith('.gif')
@@ -72,7 +72,64 @@ with tempfile.TemporaryDirectory(prefix='nosting-media-') as tmp, sync_playwrigh
    assert strip.evaluate('e=>new Set(Array.from(e.children).map(n=>n.offsetTop)).size===1')
   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
   assert 'clip.webm' not in requested, 'video must remain opt-in'
+  assert page.locator('#single .petal-media-nav').count() == 0
+  group = strips.nth(1).locator('..')
+  previous = group.get_by_label('前の画像・動画')
+  next_button = group.get_by_label('次の画像・動画')
+  assert next_button.get_attribute('aria-controls') == strips.nth(1).get_attribute('id')
+  assert next_button.evaluate('e=>getComputedStyle(e).opacity') == '0'
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-next')[1].getAttribute('aria-disabled')!=='true'")
+  assert previous.get_attribute('aria-disabled') == 'true'
+  if width >= 600:
+   group.hover()
+   assert next_button.evaluate('e=>getComputedStyle(e).opacity') == '1'
+   page.screenshot(path=f'/tmp/nosting-media-{width}-hover.png')
+  # Tab can reach the controls even before hover; focus keeps them visible.
+  previous.focus()
+  page.keyboard.press('Tab')
+  assert next_button.evaluate('e=>document.activeElement===e && getComputedStyle(e).opacity==="1"')
+  page.evaluate("""()=>{
+   qa.scrollBehaviors=[];
+   const original=Element.prototype.scrollTo;
+   Element.prototype.scrollTo=function(options){qa.scrollBehaviors.push(options.behavior);return original.apply(this,arguments)};
+  }""")
+  second = strips.nth(1)
+  step = second.evaluate('e=>e.children[1].getBoundingClientRect().left-e.children[0].getBoundingClientRect().left')
+  maximum = second.evaluate('e=>e.scrollWidth-e.clientWidth')
+  page.keyboard.press('Enter')
+  page.wait_for_function('(target)=>Math.abs(document.querySelectorAll("#mixed .petal-media-strip")[1].scrollLeft-target)<1', arg=min(step,maximum))
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-previous')[1].getAttribute('aria-disabled')!=='true'")
+  next_button.click()
+  page.wait_for_function('(target)=>Math.abs(document.querySelectorAll("#mixed .petal-media-strip")[1].scrollLeft-target)<1', arg=min(step*2,maximum))
+  next_button.click()
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-next')[1].getAttribute('aria-disabled')==='true'")
+  assert next_button.evaluate('e=>document.activeElement===e'), 'end control must retain keyboard focus'
+  end = second.evaluate('e=>e.scrollLeft')
+  box = next_button.bounding_box()
+  page.mouse.click(box['x']+box['width']/2,box['y']+box['height']/2)
+  assert second.evaluate('e=>e.scrollLeft') == end
+  assert page.evaluate('qa.opened') == 0
+  # Resize can make every card fit; both controls then become unavailable.
+  second.evaluate('e=>{e.style.maxWidth="none";e.style.width="1600px"}')
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-previous')[1].getAttribute('aria-disabled')==='true' && document.querySelectorAll('#mixed .petal-media-next')[1].getAttribute('aria-disabled')==='true'")
+  second.evaluate('e=>{e.style.removeProperty("width");e.style.removeProperty("max-width");e.scrollTo({left:0,behavior:"instant"})}')
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-next')[1].getAttribute('aria-disabled')!=='true'")
+  second.evaluate('e=>e.scrollTo({left:e.scrollWidth,behavior:"instant"})')
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-previous')[1].getAttribute('aria-disabled')!=='true'")
+  previous.click()
+  page.wait_for_function('(end)=>document.querySelectorAll("#mixed .petal-media-strip")[1].scrollLeft<end-1',arg=end)
+  second.evaluate('e=>e.scrollTo({left:0,behavior:"instant"})')
+  page.wait_for_function("document.querySelectorAll('#mixed .petal-media-previous')[1].getAttribute('aria-disabled')==='true'")
+  previous.focus()
+  page.keyboard.press('Enter')
+  assert second.evaluate('e=>e.scrollLeft') == 0
+  expected_behavior = 'instant' if motion == 'reduce' else 'smooth'
+  assert page.evaluate('qa.scrollBehaviors.slice(0,3)') == [expected_behavior]*3
+  page.locator('h1').click()
+  page.mouse.move(0,0)
+  assert next_button.evaluate('e=>getComputedStyle(e).opacity') == '0'
   first = strips.first
+  page.keyboard.press('Tab')
   first.focus()
   assert first.evaluate('e=>e.matches(":focus-visible") && getComputedStyle(e).outlineStyle!=="none"')
   page.keyboard.press('ArrowRight')
@@ -135,11 +192,13 @@ with tempfile.TemporaryDirectory(prefix='nosting-media-') as tmp, sync_playwrigh
   first.evaluate('e=>e.scrollLeft=0')
   second.evaluate('e=>e.scrollLeft=0')
   page.evaluate('window.scrollTo(0,0)')
+  first.focus()
+  page.wait_for_function("document.querySelector('#mixed .petal-media-previous').getAttribute('aria-disabled')==='true' && document.querySelector('#mixed .petal-media-next').getAttribute('aria-disabled')!=='true'")
   page.screenshot(path=f'/tmp/nosting-media-{width}-row.png')
   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
   assert not errors, errors
   assert not external, external
-  results.append({'viewport':width, 'order_and_metadata':True, 'horizontal_scroll':True, 'keyboard_expand_escape':True, 'touch_swipe':width<600, 'video_playback':True, 'sensitive_toggle':True, 'page_overflow':False, 'console_errors':errors})
+  results.append({'viewport':width, 'motion':motion, 'hover_focus_arrows':True, 'one_card_steps_and_edges':True, 'resize':True, 'order_and_metadata':True, 'horizontal_scroll':True, 'keyboard_expand_escape':True, 'touch_swipe':width<600, 'video_playback':True, 'sensitive_toggle':True, 'page_overflow':False, 'console_errors':errors})
   context.close()
  print(json.dumps(results, ensure_ascii=False, indent=2))
  browser.close()

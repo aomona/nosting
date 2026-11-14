@@ -2,6 +2,7 @@
 import {useEffect,useState} from 'react';
 import {M3eButton} from '@m3e/react/button';
 import {findNip05Profile,type Nip05ProfileResult} from '../lib/nip05-profile';
+import Nip05Details from './nip05-details';
 import type {Profile} from '../lib/profiles';
 import './nip05.css';
 export default function Nip05Search({identifier,relays,onOpen}:{identifier:string;relays:string[];onOpen:(pubkey:string,profile:Profile)=>void}) {
@@ -14,7 +15,8 @@ export default function Nip05Search({identifier,relays,onOpen}:{identifier:strin
   void findNip05Profile(identifier,JSON.parse(relayKey),abort.signal).then(value => {if (!abort.signal.aborted) setSnapshot({key:requestKey,value})});
   return () => abort.abort();
  },[identifier,relayKey,requestKey]);
+ const name=result?.status==='found'?(result.profile.display_name || result.profile.name):'';
  return <section className="nip05-search" aria-label="NIP-05 検索結果">
-  {!result?<p role="status">プロフィールを確認中…</p>:result.status === 'found'?<><M3eButton variant="tonal" onClick={() => onOpen(result.pubkey,result.profile)}>{result.profile.display_name || result.profile.name || identifier}</M3eButton><div className="nip05-identifier"><span>{identifier}</span><small>公開鍵と一致</small></div>{result.partial&&<p role="status">一部のリレーは未確認です</p>}</>:<p role="status">プロフィールとの対応を確認できませんでした</p>}
+  {result?.status==='found'?<div className="nip05-search-row"><M3eButton variant="text" className="nip05-open-profile" aria-label={name&&name!==identifier?`${name} ${identifier}`:identifier} onClick={() => onOpen(result.pubkey,result.profile)}>{name&&name!==identifier&&<span className="nip05-result-name">{name}</span>}<span className="nip05-result-address">{identifier}</span></M3eButton><Nip05Details identifier={identifier} state="matched" partial={result.partial} iconOnly/></div>:<p role="status">{!result?'プロフィールを確認中…':'プロフィールとの対応を確認できませんでした'}</p>}
  </section>;
 }

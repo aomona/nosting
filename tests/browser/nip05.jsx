@@ -10,7 +10,8 @@ import Nip05Identifier from '../../components/nip05-identifier';
 import {readProfile} from '../../lib/profiles';
 import {parseEditableProfile,buildProfileEdit} from '../../lib/profile-edit';
 const secret=generateSecretKey(),pubkey=getPublicKey(secret);
-let event=finalizeEvent({kind:0,created_at:Math.floor(Date.now()/1000)-100,content:JSON.stringify({name:'haru',display_name:'Haru',nip05:'haru@example.com',about:'週末の散歩と、日々のメモ。',custom:{keep:true}}),tags:[]},secret);
+const identifier=new URLSearchParams(location.search).has('long')?'haru'.repeat(50)+'@example.com':'haru@example.com';
+let event=finalizeEvent({kind:0,created_at:Math.floor(Date.now()/1000)-100,content:JSON.stringify({name:'haru',display_name:'Haru',nip05:identifier,about:'週末の散歩と、日々のメモ。',custom:{keep:true}}),tags:[]},secret);
 window.qa={opened:'',frames:[],saved:null};
 window.fetch=async (url,{signal,redirect,credentials})=>{
  if(!String(url).startsWith('https://example.com/.well-known/nostr.json?name='))throw Error('External HTTP forbidden');

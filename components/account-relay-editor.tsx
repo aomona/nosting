@@ -4,15 +4,18 @@ import type {Event} from 'nostr-tools';
 import {M3eButton} from '@m3e/react/button';
 import {M3eIconButton} from '@m3e/react/icon-button';
 import {M3eCheckbox} from '@m3e/react/checkbox';
+import RelayAuthControl, {relayAuthLabels, type RelayAuthActions} from './relay-auth-control';
+import './relay-auth-control.css';
 import {Plus, Trash2} from 'lucide-react';
 import {editableRelayRows, type AccountRelaySnapshot} from '../lib/account-relays';
 import {normalizeRelay, parseRelays, type RelayConfig} from '../lib/relays';
 
 type Props = {
+  auth?: RelayAuthActions;
   load: (signal: AbortSignal) => Promise<AccountRelaySnapshot>;
   save: (base: Event | null, rows: RelayConfig[], signal: AbortSignal) => Promise<{event: Event; confirmed: number; total: number}>;
 };
-export default function AccountRelayEditor({load, save}: Props) {
+export default function AccountRelayEditor({load, save, auth}: Props) {
   const [base, setBase] = useState<Event | null>(null), [rows, setRows] = useState<RelayConfig[]>([]);
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [url, setUrl] = useState('');
   const [error, setError] = useState(''), [status, setStatus] = useState(''), [emptyConfirmed, setEmptyConfirmed] = useState(false);
@@ -48,11 +51,22 @@ export default function AccountRelayEditor({load, save}: Props) {
     } catch (e) {if (!controller.signal.aborted) setError(e instanceof Error ? e.message : '保存できませんでした');}
     finally {if (!controller.signal.aborted) {lock.current = false; setBusy(false);}}
   }
+  // Active connections may be absent from a failed/incomplete public-list read or be temporary readers.
+  // Keep them addressable once, without turning them into editable/publishable rows.
+  const urls = [...new Set([...rows.map(row => row.url), ...Object.keys(auth?.states ?? {})])];
   return <section className="relay-editor" aria-label="アカウントの公開リレー" aria-busy={busy}>
-    {rows.map((row, index) => <div className="relay-config" key={row.url}>
-      <div className="relay-config-head"><span>{row.url.replace('wss://', '').replace(/\/$/, '')}</span><M3eIconButton aria-label={`${row.url}を公開一覧から削除`} disabled={busy || !ready} onClick={() => {setRows(rows.filter((_, i) => i !== index)); setEmptyConfirmed(false);}}><Trash2/></M3eIconButton></div>
-      <div className="relay-permissions">{(['read', 'write'] as const).map(permission => <label key={permission}><M3eCheckbox checked={row[permission]} disabled={busy || !ready} aria-label={`${row.url} ${permission}`} onChange={e => setRows(rows.map((r, i) => i === index ? {...r, [permission]: (e.target as HTMLElement & {checked: boolean}).checked} : r))}/>{permission}</label>)}</div>
-    </div>)}
+    {urls.map(url => {
+      const index = rows.findIndex(row => row.url === url), row = rows[index], state = auth?.states[url];
+      return <div className="relay-config" key={url}>
+        <div className="relay-config-head"><span>{url.replace('wss://', '').replace(/\/$/, '')}</span><div className="relay-config-actions">
+          {auth && state && <RelayAuthControl url={url} state={state} authenticate={auth.authenticate} onDismiss={auth.onDismiss}/>}
+          {row && <M3eIconButton aria-label={`${url}を公開一覧から削除`} disabled={busy || !ready} onClick={() => {setRows(rows.filter((_, i) => i !== index)); setEmptyConfirmed(false);}}><Trash2/></M3eIconButton>}
+        </div></div>
+        <div className="relay-permissions">{row && (['read', 'write'] as const).map(permission => <label key={permission}><M3eCheckbox checked={row[permission]} disabled={busy || !ready} aria-label={`${url} ${permission}`} onChange={e => setRows(rows.map((r, i) => i === index ? {...r, [permission]: (e.target as HTMLElement & {checked: boolean}).checked} : r))}/>{permission}</label>)}
+          {state && <small role="status" aria-label={`${url}の認証状態`}>{relayAuthLabels[state.status]}</small>}
+        </div>
+      </div>;
+    })}
     {ready && <><div className="relay-add"><input aria-label="公開リレーのURL" placeholder="wss://relay.example.com" value={url} disabled={busy} onChange={e => setUrl(e.target.value)} onKeyDown={e => {if (e.key === 'Enter' && !busy) add();}}/><M3eIconButton aria-label="公開リレーを追加" disabled={busy || !url.trim() || rows.length >= 16} onClick={add}><Plus/></M3eIconButton></div>
       {!rows.length && <label><M3eCheckbox checked={emptyConfirmed} disabled={busy} onChange={e => setEmptyConfirmed((e.target as HTMLElement & {checked: boolean}).checked)}/>受信先・投稿先なしとして公開する</label>}</>}
     {error && <p role="alert">{error}</p>}{(busy || status) && <p role="status">{busy ? '確認中…' : status}</p>}

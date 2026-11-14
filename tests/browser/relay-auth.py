@@ -17,13 +17,18 @@ with sync_playwright() as p:
   page.get_by_text('ログイン',exact=True).click()
   page.wait_for_function("qa.sent.some(([url,m])=>url==='wss://auth.example/' && m[0]==='REQ')")
   page.get_by_role('button',name='リレー接続状態:',exact=False).click()
-  panel=page.get_by_role('region',name='リレー認証')
+  panel=page.get_by_role('region',name='アカウントの公開リレー')
   panel.get_by_text('認証が必要',exact=True).wait_for()
   assert page.evaluate('qa.signed.length===0')
+  assert panel.get_by_text('auth.example',exact=True).count()==1
+  assert panel.locator('.relay-config').count()==2
+  assert panel.get_by_role('checkbox',name='wss://auth.example/ read',exact=True).count()==1
   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
   page.screenshot(path=f'/tmp/nosting-issue19-{width}-before.png')
   panel.get_by_role('button',name='wss://auth.example/に認証').click()
   panel.get_by_text('認証済み',exact=True).wait_for()
+  assert panel.get_by_text('auth.example',exact=True).count()==1
+  assert panel.get_by_role('button',name='wss://auth.example/に認証').count()==0
   assert page.evaluate("qa.signed.length===1 && qa.sent.filter(([,m])=>m[0]==='AUTH').length===1 && !qa.sent.some(([,m])=>m[0]==='EVENT')")
   assert page.evaluate("qa.sent.filter(([u,m])=>u==='wss://auth.example/'&&m[0]==='REQ'&&m[1]==='feed').length===2")
   page.screenshot(path=f'/tmp/nosting-issue19-{width}-authenticated.png')
@@ -41,8 +46,28 @@ with sync_playwright() as p:
   page.evaluate('qa.release()')
   page.wait_for_timeout(100)
   assert page.evaluate("!qa.sent.some(([,m])=>m[0]==='AUTH'||m[0]==='EVENT')")
+  # Error and cancellation states remain associated with the same single relay row.
+  for mode,label in [('deny','署名が拒否されました'),('cancel','認証を中止しました'),('timeout','認証がタイムアウトしました')]:
+   if mode=='timeout': page.clock.install()
+   page.reload()
+   page.get_by_text('ログイン',exact=True).click()
+   page.wait_for_function("qa.sent.some(([url,m])=>url==='wss://auth.example/' && m[0]==='REQ')")
+   page.get_by_role('button',name='リレー接続状態:',exact=False).click()
+   panel.get_by_text('認証が必要',exact=True).wait_for()
+   page.evaluate("mode=>{qa.deny=mode==='deny';qa.hold=mode==='cancel';qa.ignoreAuth=mode==='timeout'}",mode)
+   panel.get_by_role('button',name='wss://auth.example/に認証').click()
+   if mode=='cancel':
+    panel.get_by_role('button',name='wss://auth.example/の認証を中止').click()
+    page.evaluate('qa.release()')
+   if mode=='timeout':
+    panel.get_by_text('認証を確認中…',exact=True).wait_for()
+    page.clock.fast_forward(16000)
+   panel.get_by_text(label,exact=True).wait_for()
+   assert panel.get_by_text('auth.example',exact=True).count()==1
+   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+   assert page.evaluate("qa.sent.filter(([,m])=>m[0]==='AUTH').length")== (1 if mode=='timeout' else 0)
   assert not errors,errors
-  results.append({'width':width,'explicit_auth':True,'replayed_feed':True,'dialog_close_cancels':True,'external_network':'blocked','pageerrors':errors})
+  results.append({'width':width,'explicit_auth':True,'replayed_feed':True,'dialog_close_cancels':True,'single_relay_row':True,'refusal_cancel_timeout':True,'external_network':'blocked','pageerrors':errors})
   page.close()
  print(json.dumps(results,ensure_ascii=False,indent=2))
  browser.close()

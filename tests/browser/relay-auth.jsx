@@ -7,10 +7,11 @@ const secret=generateSecretKey(),pubkey=getPublicKey(secret),now=Math.floor(Date
 const sign=event=>finalizeEvent(event,secret);
 const relays=sign({kind:10002,created_at:now-10,content:'',tags:[['r','wss://auth.example/'],['r','wss://healthy.example/']]});
 const note=sign({kind:1,created_at:now-5,content:'リレー認証のローカル検証',tags:[]});
-const qa=window.qa={sent:[],signed:[],hold:false,release:null};
+const qa=window.qa={sent:[],signed:[],hold:false,release:null,deny:false,ignoreAuth:false};
 window.nostr={getPublicKey:async()=>pubkey,signEvent:async event=>{
  if(event.kind!==22242)throw Error('Only NIP-42 mock signing is allowed');
  qa.signed.push(event);
+ if(qa.deny)throw Error('Mock signer refusal');
  if(qa.hold)await new Promise(resolve=>{qa.release=resolve;});
  return sign(event);
 }};
@@ -22,6 +23,7 @@ class Socket {
  send(raw){const frame=JSON.parse(raw);qa.sent.push([this.url,frame]);
   if(frame[0]==='AUTH'){
    if(!verifyEvent(frame[1])||frame[1].kind!==22242||frame[1].tags[0][1]!==this.url||frame[1].tags[1][1]!=='local-challenge')throw Error('Bad mock AUTH');
+   if(qa.ignoreAuth)return;
    this.authenticated=true;this.reply(['OK',frame[1].id,true,'']);return;
   }
   if(frame[0]==='EVENT')throw Error('Publishing forbidden in browser QA');

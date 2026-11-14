@@ -20,6 +20,20 @@ export function Media({item,onExpand}:{item:NoteMedia;onExpand:(src:NoteMedia)=>
  return <M3eCard variant="filled" className="petal-media-card"><div className="petal-media-frame" style={{'--petal-media-ratio':mediaAspectRatio(item)} as CSSProperties}>{failed?<div className="petal-media-placeholder"><ImageOff aria-hidden="true"/><span>読み込めませんでした</span><M3eButton href={item.url} target="_blank" rel="noopener noreferrer">元のファイル</M3eButton></div>:item.type==='image'?<><img src={item.url} width={item.width} height={item.height} alt={item.alt||'投稿の画像'} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/><M3eIconButton className="petal-media-expand" variant="tonal" aria-label="画像を拡大" onClick={()=>onExpand(item)}><Expand/></M3eIconButton></>:videoReady?<video src={item.url} width={item.width} height={item.height} controls playsInline preload="metadata" onError={()=>setFailed(true)} aria-label={item.alt||'投稿の動画'}/>:<div className="petal-media-placeholder"><M3eButton variant="tonal" onClick={()=>setVideoReady(true)}><Play slot="icon"/>動画を読み込む</M3eButton></div>}</div></M3eCard>;
 }
 
+function MediaGroup({items,onExpand}:{items:NoteMedia[];onExpand:(src:NoteMedia)=>void}){
+ const scrollable=items.length>1;
+ return <div className={'petal-note-media'+(scrollable?' petal-media-strip':'')}
+  role={scrollable?'group':undefined} aria-label={scrollable?'投稿の画像・動画（横スクロール）':undefined} tabIndex={scrollable?0:undefined}
+  onClick={e=>e.stopPropagation()}
+  onFocus={scrollable?e=>{
+   // Native focus scrolling can leave a partially visible button clipped by snap.
+   // Only adjust keyboard focus: moving a card during pointerdown cancels clicks.
+   if(e.target!==e.currentTarget&&e.target.matches(':focus-visible'))e.target.closest('.petal-media-card')?.scrollIntoView({block:'nearest',inline:'nearest'});
+  }:undefined}>
+  {items.map(item=><Media key={item.url} item={item} onExpand={onExpand}/>)}
+ </div>;
+}
+
 function Content({content,tags,noteId,quoteDepth}:{content:string;tags:string[][];noteId:string;quoteDepth:number}){
  const quotes=useMemo(()=>quoteDepth===0?quoteIds(content,tags,noteId):[],[content,tags,noteId,quoteDepth]);
  const displayContent=useMemo(()=>quoteDisplayContent(content,quotes),[content,quotes]);
@@ -33,7 +47,7 @@ function Content({content,tags,noteId,quoteDepth}:{content:string;tags:string[][
  function conceal(){setOpen(false);setExpanded(null);setRevealed(false);}
  return <div className="petal-note-body">
   {warning&&<M3eCard variant="filled" className="petal-content-warning"><div className="petal-warning-inner"><div className="petal-warning-copy"><span>センシティブな内容</span>{!visible&&warning[1]?.trim()&&<span className="petal-warning-reason">{warning[1].slice(0,300)}</span>}</div><M3eButton variant="tonal" onClick={()=>visible?conceal():setRevealed(true)} aria-expanded={visible?'true':'false'}>{visible&&<EyeOff slot="icon"/>}{visible?'隠す':'表示する'}</M3eButton></div></M3eCard>}
-  {visible&&<><InlineMediaContext.Provider value={items=><div className={'petal-note-media'+(items.length>1?' petal-media-grid':'')}>{items.map(item=><Media key={item.url} item={item} onExpand={m=>{setExpanded(m);setOpen(true)}}/>)}</div>}><MarkdownContent content={displayContent} tags={tags}/></InlineMediaContext.Provider>
+  {visible&&<><InlineMediaContext.Provider value={items=><MediaGroup items={items} onExpand={m=>{setExpanded(m);setOpen(true)}}/>}><MarkdownContent content={displayContent} tags={tags}/></InlineMediaContext.Provider>
   {quotes.map(id=><QuoteCard key={id} id={id}/>)}
   {expanded&&<M3eDialog open={open} onClosed={()=>{setOpen(false);setExpanded(null)}} dismissible closeLabel="閉じる" aria-label="画像を拡大" className="petal-image-dialog"><X slot="close-icon"/><img src={expanded.url} alt={expanded.alt||'投稿の画像'} referrerPolicy="no-referrer"/></M3eDialog>}</>}
  </div>;

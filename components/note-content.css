@@ -2,13 +2,16 @@
    M3E card's shadow-root flex layout. The default slot has no sizing rule. */
 .petal-note-body { min-width: 0; max-width: 100%; }
 .petal-note-media { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 12px 0; min-width: 0; width: 100%; }
-.petal-note-media.petal-media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Leave a glimpse of the next card, with native touch/trackpad/keyboard scrolling.
+   Contain intrinsic widths here, including inside nested Markdown and quotes. */
+.petal-note-media.petal-media-strip { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: min(85%, 320px); align-items: start; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding-bottom: 8px; }
+.petal-media-strip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 20px; }
+.petal-media-strip > .petal-media-card { scroll-snap-align: start; }
 m3e-card.petal-media-card { display: block; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; --m3e-card-shape: 20px; }
 .petal-media-frame { position: relative; flex: 0 0 auto; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; border-radius: 20px; background: var(--container); aspect-ratio: var(--petal-media-ratio, 4 / 3); max-height: min(480px, 65dvh); }
 .petal-media-frame img, .petal-media-frame video { position: absolute; inset: 0; display: block; width: 100%; max-width: 100%; height: 100%; max-height: none; object-fit: contain; }
 .petal-media-frame video { background: #000; }
-.petal-media-grid .petal-media-frame { aspect-ratio: 1; }
-.petal-media-grid .petal-media-frame img, .petal-media-grid .petal-media-frame video { width: 100%; height: 100%; max-height: none; object-fit: contain; }
+.petal-media-strip .petal-media-frame { aspect-ratio: 1; }
 .petal-media-expand { position: absolute; bottom: 8px; right: 8px; }
 .petal-media-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; position: absolute; inset: 0; min-height: 0; height: 100%; width: 100%; padding: 16px; box-sizing: border-box; font-size: 13px; overflow-wrap: anywhere; }
 m3e-card.petal-content-warning { display: block; width: 100%; min-width: 0; margin: 12px 0; --m3e-card-shape: 20px; }
@@ -19,8 +22,6 @@ m3e-card.petal-content-warning { display: block; width: 100%; min-width: 0; marg
 m3e-dialog.petal-image-dialog { --m3e-dialog-max-width: min(960px, calc(100vw - 32px)); --m3e-dialog-min-width: min(280px, calc(100vw - 32px)); }
 .petal-image-dialog img { display: block; width: auto; height: auto; max-width: 100%; max-height: 72dvh; object-fit: contain; margin: auto; }
 @media (max-width: 450px) {
- .petal-note-media.petal-media-grid { grid-template-columns: minmax(0, 1fr); }
- .petal-media-grid .petal-media-frame { aspect-ratio: var(--petal-media-ratio, 4 / 3); }
  .petal-media-frame { max-height: min(400px, 60dvh); }
  .petal-warning-inner { flex-wrap: wrap; padding: 12px; }
 }

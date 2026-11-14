@@ -24,28 +24,35 @@ with sync_playwright() as p:
   assert page.evaluate("window.qa.requests.some(f=>f[0]==='REQ'&&f.slice(2).some(q=>q.ids?.includes(window.qa.noteId)))")
   page.get_by_text('ログイン',exact=True).click()
   page.get_by_text('別クライアントで保存した投稿。',exact=True).wait_for()
-  page.get_by_text('非公開ブックマークは未対応です',exact=True).wait_for()
+  page.get_by_text('非公開は未対応',exact=False).wait_for()
   assert page.locator('article[data-note-id]').count()==1
   assert page.get_by_text('削除済み',exact=True).count()==0
   assert page.evaluate("JSON.parse(localStorage.getItem('petal-bookmarks:v2:'+qa.owner)).local.length===0")
   # A failed relay does not hide a valid note or claim the list is empty.
   page.evaluate('qa.fail=true')
-  page.get_by_text('再取得',exact=True).click()
-  page.get_by_text('一部のリレーから取得できませんでした',exact=True).wait_for()
-  page.wait_for_function("!document.querySelector('.bookmark-toolbar m3e-button').disabled")
+  page.get_by_role('button',name='再取得',exact=True).click()
+  page.get_by_text('一部リレー取得失敗',exact=False).wait_for()
+  page.wait_for_function("!document.querySelector('.bookmark-toolbar m3e-icon-button').disabled")
   assert page.locator('article[data-note-id]').count()==1
+  assert page.locator('.bookmark-toolbar').bounding_box()['height']<=48
+  if width==390:
+   for narrow in [320,360,390]:
+    page.set_viewport_size({'width':narrow,'height':height})
+    page.wait_for_timeout(100)
+    assert page.evaluate("""()=>{const labels=[...document.querySelectorAll('.mobile-nav m3e-nav-item')].map(e=>e.shadowRoot.querySelector('.label').getBoundingClientRect());return labels.every((r,i)=>r.left>=0&&r.right<=innerWidth&&(!i||r.left>=labels[i-1].right))}"""), narrow
+   assert page.locator('.mobile-nav m3e-nav-item[aria-label=プロフィール]').is_visible()
   page.screenshot(path=f'/tmp/nosting-bookmarks-{width}-partial.png')
   page.evaluate('qa.fail=false;qa.update()')
-  page.get_by_text('再取得',exact=True).click()
+  page.get_by_role('button',name='再取得',exact=True).click()
   page.get_by_text('以前に保存した投稿。タイムラインになくても、IDから読み込めます。',exact=True).wait_for()
-  page.wait_for_function("!document.querySelector('.bookmark-toolbar m3e-button').disabled")
+  page.wait_for_function("!document.querySelector('.bookmark-toolbar m3e-icon-button').disabled")
   assert page.get_by_text('別クライアントで保存した投稿。',exact=True).count()==0
   # Local removal of a synced item never signs or changes the signed list.
   page.locator('article m3e-icon-button[aria-label="ブックマーク"]').click()
   page.get_by_text('ブックマークはまだありません',exact=True).wait_for()
   assert page.evaluate("JSON.parse(localStorage.getItem('petal-bookmarks:v2:'+qa.owner)).event.tags.some(t=>t[1]===qa.noteId)")
   # Logout while reading, then log in with another ephemeral test account.
-  page.evaluate("qa.slow=true;document.querySelector('.bookmark-toolbar m3e-button').click()")
+  page.evaluate("qa.slow=true;document.querySelector('.bookmark-toolbar m3e-icon-button').click()")
   if width<=650: page.locator('.mobile-header-settings').click()
   else: page.get_by_text('アカウント',exact=True).click()
   page.get_by_text('ログアウト',exact=True).click()

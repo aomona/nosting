@@ -1,6 +1,8 @@
-.bookmark-status { padding: 16px 24px; }
-.bookmark-toolbar { display: flex; align-items: center; gap: 12px; }
+.bookmark-status { padding: 8px 24px; }
+.bookmark-toolbar { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.bookmark-summary { flex: 1; min-width: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; color: var(--md-sys-color-on-surface-variant); }
+.bookmark-toolbar m3e-icon-button { flex: none; }
 .bookmark-status p { font-size: 14px; color: var(--md-sys-color-on-surface-variant); }
-.bookmark-status ul { margin: 12px 0 0; padding: 0; list-style: none; }
+.bookmark-status ul { margin: 0; padding: 0; list-style: none; }
 .bookmark-status li { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 8px 0; font-size: 14px; }
 .bookmark-status li m3e-button { margin-inline-start: auto; }

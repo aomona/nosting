@@ -71,8 +71,15 @@ The browser fixture blocks external HTTP and offers `?full=1` to exercise the ac
 application route and navigation with the same mocked relay and extension.
 Mobile DM uses its own scrollport above the measured navigation bar (including
 safe-area padding), with the composer scrolled into view on focus or viewport
-resize. Browser checks cover 390×844, 375×667, 390×480, a resized viewport and
-extra navigation padding; they assert the input/send geometry before clicking.
+resize. The compact toolbar separates conversation selection, a new recipient,
+requests and DM settings; the raw recipient input is only shown for a new chat.
+Icon controls have M3E tooltips, accessible names and 44px targets. Escape returns
+focus from auxiliary panels, and Ctrl/Cmd+Enter sends only outside IME composition.
+Routine receipts are available through the check/details control; partial sends,
+errors and cancellation uncertainty remain visible. NIP-42 disclosure and explicit
+public relay-setting publication remain in DM settings. Browser checks cover desktop/mobile light and dark themes, 390×844, 375×667,
+390×480, a resized viewport, extra navigation padding, keyboard focus/tooltips and
+IME-safe sending; they assert the input/send geometry before dispatch.
 Screenshots are written to `/tmp`, not tracked in Git.
 
 References reviewed during implementation:

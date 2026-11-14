@@ -1,7 +1,9 @@
 .remote-login{display:grid;gap:16px;min-width:0}
 .remote-login m3e-form-field{width:100%;min-width:0}
 .remote-login input{min-width:0;width:100%;font:inherit}
-.remote-login-hint{font-size:13px;color:var(--md-sys-color-on-surface-variant);margin:0}
+.remote-login-help{font-size:13px;color:var(--md-sys-color-on-surface-variant)}
+.remote-login-help summary{cursor:pointer;padding:4px 0}
+.remote-login-help p{margin:8px 0 0;line-height:1.6}
 .remote-login-actions,.remote-authorization{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .remote-authorization{padding:12px;border-radius:16px;background:var(--md-sys-color-surface-container)}
 .remote-authorization a{overflow-wrap:anywhere}

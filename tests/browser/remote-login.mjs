@@ -48,6 +48,14 @@ try {
   await page.goto('http://127.0.0.1:5173/');
   await page.getByRole('button',{name:'ログイン',exact:true}).click();
   await page.getByLabel('bunker 接続URL').waitFor();
+  const help=page.locator('.remote-login-help');
+  assert.equal(await help.getAttribute('open'),null);
+  assert.equal(await help.locator('p').first().isVisible(),false);
+  await help.locator('summary').click();
+  assert.match(await help.innerText(),/nostrconnect:\/\/ は未対応/);
+  assert.match(await help.innerText(),/接続はこのタブのみ/);
+  assert.match(await help.innerText(),/秘密鍵は入力しない/);
+  await help.locator('summary').click();
   await page.waitForTimeout(500);
   await page.screenshot({path:`${artifacts}/mobile-login.png`});
   const token=`bunker://${transportKey}?relay=ws://127.0.0.1:${relay.address().port}&secret=mock-token`;
@@ -55,6 +63,9 @@ try {
   await page.getByRole('button',{name:'リモート署名で接続',exact:true}).click();
   await page.getByRole('link',{name:'署名サービスで承認する'}).waitFor();
   assert.equal(await page.getByLabel('bunker 接続URL').inputValue(),'');
+  assert.equal(await page.getByRole('button',{name:'接続を中止',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'中止',exact:true}).count(),0);
+  assert.equal(await help.getAttribute('open'),null);
   await page.screenshot({path:`${artifacts}/mobile-approval.png`});
   const popupPromise=context.waitForEvent('page');
   await page.getByRole('link',{name:'署名サービスで承認する'}).click();
@@ -96,12 +107,13 @@ try {
   await page.getByRole('button',{name:'署名して保存',exact:true}).click();
   const approveLink=page.getByRole('link',{name:'署名サービスで承認する'});
   await approveLink.waitFor();
+  assert.equal(await page.getByRole('button',{name:'中止',exact:true}).count(),1);
   const signPopupPromise=context.waitForEvent('page');await approveLink.click();
   const signPopup=await signPopupPromise;await signPopup.getByRole('button',{name:'モック署名を許可'}).click();
   await page.bringToFront();await page.getByText('プロフィールを保存しました',{exact:true}).waitFor();
   assert.equal(published.length,2);assert.equal(published[1].kind,0);assert.equal(published[1].pubkey,userKey);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   assert.deepEqual(errors,[]);
-  console.log('PASS mobile bunker login, auth challenge, distinct identity, signed mock publication, logout during signing, cancel, same-account reconnect, modal signing approval; zero public relay traffic.');
+  console.log('PASS collapsed connection help, single connection cancel, mobile bunker login, auth challenge, distinct identity, signed mock publication, logout during signing, cancel, same-account reconnect, modal signing approval; zero public relay traffic.');
   console.log(`Screenshots: ${artifacts}`);
 } finally {await browser.close();for(const client of relay.clients)client.terminate();await new Promise(r=>relay.close(r));transportSecret.fill(0);userSecret.fill(0)}

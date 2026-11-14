@@ -1,5 +1,9 @@
 import fs from 'node:fs/promises';import ts from 'typescript';import assert from 'node:assert/strict';
-async function load(file){return import('data:text/javascript;base64,'+Buffer.from(ts.transpileModule(await fs.readFile(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText).toString('base64'))}
+import {createRequire} from 'node:module';import {pathToFileURL} from 'node:url';
+const require=createRequire(import.meta.url);
+const authSource=(await fs.readFile('lib/relay-auth.ts','utf8')).replace("'nostr-tools'",JSON.stringify(pathToFileURL(require.resolve('nostr-tools').replace('/cjs/','/esm/')).href));
+const authUrl='data:text/javascript;base64,'+Buffer.from(ts.transpileModule(authSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText).toString('base64');
+async function load(file){return import('data:text/javascript;base64,'+Buffer.from(ts.transpileModule((await fs.readFile(file,'utf8')).replace("'./relay-auth'",JSON.stringify(authUrl)),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText).toString('base64'))}
 const {RelayConnections,RelayPublisher}=await load('lib/relay-connections.ts');const {HistoryPager}=await load('lib/history-pager.ts');
 const tick=(ms=8)=>new Promise(r=>setTimeout(r,ms));
 async function waitFor(check){const end=Date.now()+2000;while(!check()){if(Date.now()>end)throw Error("condition timed out");await tick(5)}}

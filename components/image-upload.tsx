@@ -3,10 +3,10 @@ import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {M3eButton} from '@m3e/react/button';
 import {M3eIconButton} from '@m3e/react/icon-button';
 import {ImagePlus} from 'lucide-react';
-import {verifyEvent} from 'nostr-tools';
+import {verifyEvent,type Event,type EventTemplate} from 'nostr-tools';
 import './image-upload.css';
 import {prepareUploadFile} from '../lib/upload-file';
-export default function ImageUpload({pubkey,onUploaded,onLogin,onBusy,onPending,action,disabled=false}:{pubkey:string;onUploaded:(url:string)=>void;onLogin:()=>void;onBusy:(busy:boolean)=>void;onPending:(pending:boolean)=>void;action:ReactNode;disabled?:boolean}){
+export default function ImageUpload({signEvent,pubkey,onUploaded,onLogin,onBusy,onPending,action,disabled=false}:{signEvent:(event:EventTemplate)=>Promise<Event>;pubkey:string;onUploaded:(url:string)=>void;onLogin:()=>void;onBusy:(busy:boolean)=>void;onPending:(pending:boolean)=>void;action:ReactNode;disabled?:boolean}){
  const [file,setFile]=useState<File|null>(null),[preview,setPreview]=useState(''),[sending,setSending]=useState(false),[error,setError]=useState('');
  const selection=useRef(0);
  const input=useRef<HTMLInputElement>(null),lock=useRef(false),abort=useRef<AbortController|null>(null),mounted=useRef(true),currentKey=useRef(pubkey);currentKey.current=pubkey;
@@ -26,8 +26,7 @@ export default function ImageUpload({pubkey,onUploaded,onLogin,onBusy,onPending,
   try{
    const bytes=await file.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(b=>b.toString(16).padStart(2,'0')).join('');
    const url=new URL('/api/uploads',window.location.origin).href;
-   const signer=(window as any).nostr;if(!signer?.signEvent)throw Error('Nostr署名拡張機能が必要です');
-   const event=await signer.signEvent({kind:27235,created_at:Math.floor(Date.now()/1000),content:'',tags:[['u',url],['method','POST'],['payload',hash]]});
+   const event=await signEvent({kind:27235,created_at:Math.floor(Date.now()/1000),content:'',tags:[['u',url],['method','POST'],['payload',hash]]});
    if(controller.signal.aborted)return;
    if(event.pubkey!==pubkey||currentKey.current!==pubkey||!verifyEvent(event)||event.kind!==27235||event.content!==''||JSON.stringify(event.tags)!==JSON.stringify([['u',url],['method','POST'],['payload',hash]]))throw Error('アップロードの署名を確認できませんでした');
    const authorization=btoa(JSON.stringify(event));attempted=true;

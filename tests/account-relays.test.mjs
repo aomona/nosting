@@ -169,7 +169,7 @@ harness.accountRelays.current.stop();
 let appPublications=0,appSignatures=0,finishSign;
 harness.relaySaving={current:false};harness.busy=false;harness.setBusy=value=>{harness.busy=value;};
 harness.loadOwnRelays=async()=>({event:old,partial:false});
-harness.window={nostr:{signEvent:async event=>{appSignatures++;await new Promise(resolve=>{finishSign=resolve;});return nostr.finalizeEvent(plain(event),sk);}}};
+harness.signerSession={current:{signEvent:async event=>{appSignatures++;await new Promise(resolve=>{finishSign=resolve;});return nostr.finalizeEvent(plain(event),sk);}}};
 harness.publishAccountRelayList=async()=>{appPublications++;return {confirmed:1,total:1};};
 for(const cancellation of ['close','logout','switch']){
   harness.activeUser.current=owner;harness.pubkey=owner;harness.switchRelayAccount(owner);

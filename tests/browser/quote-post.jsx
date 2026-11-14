@@ -27,7 +27,8 @@ window.WebSocket=class {
    this.receive(['EOSE',frame[1]]);
   }else if(frame[0]==='EVENT'){
    const event=frame[1];if(!verifyEvent(event))throw Error('Invalid test signature');
-   qa.published.push({url:this.url,event});
+   // Count quote publications separately from the NIP-65 list shared alongside them.
+   if(event.kind===1)qa.published.push({url:this.url,event});
    if(qa.mode==='timeout')return;
    const accepted=qa.mode!=='reject';if(accepted)qa.events.push(event);
    this.receive(['OK',event.id,accepted,accepted?'':'blocked: fixture rejection']);

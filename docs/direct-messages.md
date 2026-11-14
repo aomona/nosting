@@ -69,6 +69,10 @@ python tests/browser/direct-messages-app.py
 All DM tests use generated test keys and mocked WebSockets, never public relays.
 The browser fixture blocks external HTTP and offers `?full=1` to exercise the actual
 application route and navigation with the same mocked relay and extension.
+Mobile DM uses its own scrollport above the measured navigation bar (including
+safe-area padding), with the composer scrolled into view on focus or viewport
+resize. Browser checks cover 390×844, 375×667, 390×480, a resized viewport and
+extra navigation padding; they assert the input/send geometry before clicking.
 Screenshots are written to `/tmp`, not tracked in Git.
 
 References reviewed during implementation:

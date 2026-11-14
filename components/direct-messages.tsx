@@ -13,8 +13,23 @@ export default function DirectMessages(props:Props){return props.owner?<Inbox ke
 function Inbox({owner,lookup}:Props){
  const [messages,setMessages]=useState<Rumor[]>([]),[peer,setPeer]=useState(''),[text,setText]=useState(''),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[allowAuth,setAllowAuth]=useState(false),[relayText,setRelayText]=useState(''),[pending,setPending]=useState<PendingDm|null>(null);
  const [accepted,setAccepted]=useState<string[]>([]),[blocked,setBlocked]=useState<string[]>([]),[requests,setRequests]=useState(false),[started,setStarted]=useState(false),[until,setUntil]=useState<number|undefined>(),[historyLimited,setHistoryLimited]=useState(false);
+ const panel=useRef<HTMLElement>(null);
  const operation=useRef<AbortController|null>(null),lock=useRef(false),mounted=useRef(false);
  useLayoutEffect(()=>{mounted.current=true;queueMicrotask(()=>{if(!mounted.current)return;try{const saved=JSON.parse(localStorage.getItem('nosting-dm-policy:'+owner)||'{}');if(Array.isArray(saved.accepted))setAccepted(saved.accepted.filter(isKey).slice(0,500));if(Array.isArray(saved.blocked))setBlocked(saved.blocked.filter(isKey).slice(0,500))}catch{}});return()=>{mounted.current=false;operation.current?.abort()}},[owner]);
+ // Keep the mobile scrollport above the actual navigation bar, including its safe area.
+ // visualViewport also covers keyboards that resize only the visual viewport.
+ useLayoutEffect(()=>{
+  const main=panel.current?.closest<HTMLElement>('main.messages-view');if(!main)return;
+  const nav=document.querySelector<HTMLElement>('m3e-nav-bar.mobile-nav');let frame=0;
+  const update=()=>{
+   main.style.setProperty('--dm-viewport-height',`${Math.min(window.innerHeight,window.visualViewport?.height??window.innerHeight)}px`);
+   main.style.setProperty('--dm-nav-height',`${nav?.getBoundingClientRect().height??80}px`);
+   cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(panel.current?.contains(document.activeElement)&&document.activeElement?.id==='dm-text')document.activeElement.closest('.dm-compose')?.scrollIntoView({block:'nearest'})});
+  };
+  const observer=new ResizeObserver(update);if(nav)observer.observe(nav,{box:'border-box'});
+  window.addEventListener('resize',update);window.visualViewport?.addEventListener('resize',update);update();
+  return()=>{observer.disconnect();cancelAnimationFrame(frame);window.removeEventListener('resize',update);window.visualViewport?.removeEventListener('resize',update);main.style.removeProperty('--dm-viewport-height');main.style.removeProperty('--dm-nav-height')};
+ },[]);
  function policy(a:string[],b:string[]){setAccepted(a);setBlocked(b);try{localStorage.setItem('nosting-dm-policy:'+owner,JSON.stringify({accepted:a.slice(-500),blocked:b.slice(-500)}))}catch{setStatus('受信設定を保存できません。この画面を閉じるまで有効です')}}
  async function run(action:(context:DmContext)=>Promise<void>){
   if(lock.current)return;lock.current=true;setBusy(true);setStatus('');const controller=new AbortController();operation.current=controller;
@@ -51,7 +66,7 @@ function Inbox({owner,lookup}:Props){
  const peers=[...new Set(messages.map(m=>dmPeer(m,owner)))].filter(k=>!blocked.includes(k));
  const requestPeers=peers.filter(k=>!accepted.includes(k));const listed=peers.filter(k=>requests?!accepted.includes(k):accepted.includes(k));
  const selected=messages.filter(m=>dmPeer(m,owner)===peer&&!blocked.includes(peer));
- return <section className="petal-dm" aria-label="暗号化DM">
+ return <section ref={panel} className="petal-dm" aria-label="暗号化DM">
   <div className="dm-toolbar"><M3eButton variant="tonal" disabled={busy} onClick={()=>void receive()}>{started?'更新':'DMを読み込む'}</M3eButton>{busy&&<M3eButton onClick={cancel}>中断</M3eButton>}</div>
   <details className="dm-settings"><summary>DM設定</summary><label><input type="checkbox" checked={allowAuth} disabled={busy} onChange={e=>setAllowAuth(e.target.checked)}/>接続先にアカウントを認証（NIP-42）</label><label htmlFor="dm-relays">受信リレー</label><textarea id="dm-relays" rows={3} placeholder="wss://…" value={relayText} disabled={busy} onChange={e=>setRelayText(e.target.value)}/><M3eButton disabled={busy||!relayText.trim()||!lookup.length} onClick={()=>void saveRelays()}>受信設定を公開</M3eButton>{blocked.map(k=><div key={k}>{short(k)} <M3eButton disabled={busy} onClick={()=>policy(accepted,blocked.filter(v=>v!==k))}>ブロック解除</M3eButton></div>)}</details>
   <div className="dm-tabs"><M3eButton variant={requests?'text':'tonal'} aria-pressed={!requests} onClick={()=>setRequests(false)}>メッセージ</M3eButton><M3eButton variant={requests?'tonal':'text'} aria-pressed={requests} onClick={()=>setRequests(true)}>受信要求 {requestPeers.length||''}</M3eButton></div>
@@ -59,7 +74,7 @@ function Inbox({owner,lookup}:Props){
   {requests?listed.map(k=><article className="dm-request" key={k}><span>{short(k)}</span><M3eButton disabled={busy||!!pending} onClick={()=>{policy([...accepted,k],blocked);setPeer(k);setRequests(false)}}>許可</M3eButton><M3eButton disabled={busy||!!pending} onClick={()=>{policy(accepted.filter(v=>v!==k),[...blocked,k]);setMessages(old=>old.filter(m=>dmPeer(m,owner)!==k))}}>ブロック</M3eButton></article>):<>
   <label htmlFor="dm-peer">宛先</label><input id="dm-peer" placeholder="npub / 公開鍵" autoComplete="off" value={peer} disabled={busy||!!pending} onChange={e=>{setPeer(e.target.value);setText('')}}/>
   <div className="dm-history" aria-label="メッセージ履歴">{accepted.includes(peer)&&selected.map(m=><article className={'dm-message'+(m.pubkey===owner?' own':'')} key={m.id}><p>{m.content}</p><time dateTime={new Date(m.created_at*1000).toISOString()}>{new Date(m.created_at*1000).toLocaleString('ja-JP')}</time></article>)}</div>
-  {blocked.includes(peer)?<p>この相手をブロックしています</p>:<><label htmlFor="dm-text">メッセージ</label><textarea id="dm-text" rows={3} maxLength={DM_TEXT_LIMIT} value={text} disabled={busy||!!pending} onChange={e=>setText(e.target.value)}/><div className="dm-toolbar"><M3eButton variant="filled" disabled={busy||(!pending&&(!text.trim()||!peer.trim()))} onClick={()=>void send()}>{pending?'同じDMを再送':'暗号化して送信'}</M3eButton>{pending&&!busy&&<M3eButton onClick={()=>{setPending(null);setText('');setStatus('再送を終了しました。送信済みのDMは削除されません。')}}>再送を終了</M3eButton>}</div></>}
+  {blocked.includes(peer)?<p>この相手をブロックしています</p>:<div className="dm-compose"><label htmlFor="dm-text">メッセージ</label><textarea id="dm-text" onFocus={e=>e.currentTarget.closest('.dm-compose')?.scrollIntoView({block:'nearest'})} rows={3} maxLength={DM_TEXT_LIMIT} value={text} disabled={busy||!!pending} onChange={e=>setText(e.target.value)}/><div className="dm-toolbar"><M3eButton variant="filled" disabled={busy||(!pending&&(!text.trim()||!peer.trim()))} onClick={()=>void send()}>{pending?'同じDMを再送':'暗号化して送信'}</M3eButton>{pending&&!busy&&<M3eButton onClick={()=>{setPending(null);setText('');setStatus('再送を終了しました。送信済みのDMは削除されません。')}}>再送を終了</M3eButton>}</div></div>}
   </>}
   {until!==undefined&&<M3eButton disabled={busy||historyLimited||messages.length>=500} onClick={()=>void receive(true)}>過去のDMを読み込む</M3eButton>}{messages.length>=500&&<p>履歴の表示上限（500件）に達しました。</p>}{historyLimited&&<p>同時刻の履歴が取得上限に達しました。</p>}
   {status&&<p role="status">{status}</p>}

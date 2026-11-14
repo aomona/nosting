@@ -56,7 +56,6 @@ export default function AccountRelayEditor({load, save}: Props) {
     {ready && <><div className="relay-add"><input aria-label="公開リレーのURL" placeholder="wss://relay.example.com" value={url} disabled={busy} onChange={e => setUrl(e.target.value)} onKeyDown={e => {if (e.key === 'Enter' && !busy) add();}}/><M3eIconButton aria-label="公開リレーを追加" disabled={busy || !url.trim() || rows.length >= 16} onClick={add}><Plus/></M3eIconButton></div>
       {!rows.length && <label><M3eCheckbox checked={emptyConfirmed} disabled={busy} onChange={e => setEmptyConfirmed((e.target as HTMLElement & {checked: boolean}).checked)}/>受信先・投稿先なしとして公開する</label>}</>}
     {error && <p role="alert">{error}</p>}{(busy || status) && <p role="status">{busy ? '確認中…' : status}</p>}
-    <p className="relay-hint">確認・接続先にはIPアドレスが伝わります。</p>
     <M3eButton variant="filled" disabled={busy || !ready || !rows.length && !emptyConfirmed} onClick={() => void submit()}>署名して公開保存</M3eButton>
     <M3eButton disabled={busy} onClick={() => {if (!ready || window.confirm('入力を破棄して公開一覧を読み直しますか？')) void reload();}}>再読み込み</M3eButton>
   </section>;

@@ -46,7 +46,7 @@ npm start
 - リレーが切れた場合、次の操作で再接続します。操作ごとに60秒でタイムアウトし、失敗した署名は自動再送しません。ログイン時は最大3操作を順番に行います。未対応の `switch_relays` は元のリレーを使います。
 - ログアウトはクライアント鍵・待機中の操作を破棄します。signerへの任意の `logout` 通知は送りません。署名アプリ側で残った権限を取り消すこともできます。
 
-ブラウザ検証は `tests/browser/remote-login.mjs` にあります。別途PlaywrightとChromiumを用意し、`npm run dev` 後に `PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/browser/remote-login.mjs` を実行します。モバイル幅でローカルsignerとインメモリのリレーを使用し、外部HTTP・公開リレーを遮断します。画像は `/tmp/nosting-issue25` に保存し、コミットしません。
+ブラウザ検証は `tests/browser/remote-login.mjs` にあります。別途PlaywrightとChromiumを用意し、`npm run dev` 後に `PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/browser/remote-login.mjs` を実行します。既定はモバイル幅で、`BROWSER_LAYOUT=desktop` を付けるとPC幅で実行します。ローカルsignerとインメモリのリレーを使用し、外部HTTP・公開リレーを遮断します。画像は `/tmp/nosting-issue25` に保存し、コミットしません。
 
 ## 構成
 

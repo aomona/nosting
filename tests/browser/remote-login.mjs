@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import {WebSocketServer} from 'ws';
 import {generateSecretKey,getPublicKey,finalizeEvent,nip44,verifyEvent} from 'nostr-tools';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const desktop=process.env.BROWSER_LAYOUT==='desktop',layout=desktop?'desktop':'mobile';
 const artifacts=process.env.SCREENSHOT_DIR || '/tmp/nosting-issue25';
 await fs.mkdir(artifacts,{recursive:true});
 const transportSecret=generateSecretKey(),userSecret=generateSecretKey();
@@ -31,7 +32,7 @@ relay.on('connection',socket=>{let subscription;
 });
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
 try {
-  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
+  const context=await browser.newContext({viewport:desktop?{width:1280,height:900}:{width:390,height:844},isMobile:!desktop,hasTouch:!desktop,deviceScaleFactor:1});
   await context.exposeBinding('approveRemote',()=>approve());
   await context.route('**/*',route=>{const url=new URL(route.request().url());if(url.hostname==='127.0.0.1')return route.continue();if(url.href==='https://signer.example/approve')return route.fulfill({contentType:'text/html; charset=utf-8',body:'<button onclick="window.approveRemote().then(()=>window.close())">モック署名を許可</button>'});return route.abort()});
   // Every application relay is intercepted. Only the isolated signing socket reaches a server.
@@ -57,7 +58,7 @@ try {
   assert.match(await help.innerText(),/秘密鍵は入力しない/);
   await help.locator('summary').click();
   await page.waitForTimeout(500);
-  await page.screenshot({path:`${artifacts}/mobile-login.png`});
+  await page.screenshot({path:`${artifacts}/${layout}-login.png`});
   const token=`bunker://${transportKey}?relay=ws://127.0.0.1:${relay.address().port}&secret=mock-token`;
   await page.getByLabel('bunker 接続URL').fill(token);
   await page.getByRole('button',{name:'リモート署名で接続',exact:true}).click();
@@ -66,7 +67,7 @@ try {
   assert.equal(await page.getByRole('button',{name:'接続を中止',exact:true}).count(),1);
   assert.equal(await page.getByRole('button',{name:'中止',exact:true}).count(),0);
   assert.equal(await help.getAttribute('open'),null);
-  await page.screenshot({path:`${artifacts}/mobile-approval.png`});
+  await page.screenshot({path:`${artifacts}/${layout}-approval.png`});
   const popupPromise=context.waitForEvent('page');
   await page.getByRole('link',{name:'署名サービスで承認する'}).click();
   const popup=await popupPromise;await popup.getByRole('button',{name:'モック署名を許可'}).click();
@@ -77,14 +78,14 @@ try {
   await page.getByText('リレーが投稿を受け付けました',{exact:true}).waitFor();
   assert.equal(published.length,1);assert.equal(published[0].pubkey,userKey);assert.notEqual(userKey,transportKey);
   assert.equal(await page.evaluate(()=>localStorage.getItem('petal-login-remember')),null);
-  await page.screenshot({path:`${artifacts}/mobile-connected.png`});
+  await page.screenshot({path:`${artifacts}/${layout}-connected.png`});
   // Logout while a signature is outstanding, then reconnect the same account.
   holdSign=true;
   await page.getByLabel('投稿本文').fill('ログアウトで破棄する署名');
   await page.getByRole('button',{name:'投稿',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('m3e-button')!==null);
   for(let i=0;i<100&&!delayedSign;i++)await new Promise(r=>setTimeout(r,20));assert(delayedSign);
-  await page.locator('.mobile-header-settings').click();
+  await page.locator(desktop?'.header-account-button':'.mobile-header-settings').click();
   await page.getByText('ログアウト',{exact:true}).click();
   delayedSign();
   await page.getByText('リモート署名で接続',{exact:true}).click();
@@ -101,7 +102,7 @@ try {
   assert.equal(published.length,1);
   // An auth challenge remains actionable inside the profile editor's modal.
   holdSign=false;challengeSign=true;
-  await page.locator('m3e-nav-bar').getByText('プロフィール',{exact:true}).click();
+  await page.locator(desktop?'m3e-nav-menu':'m3e-nav-bar').getByText('プロフィール',{exact:true}).click();
   await page.getByRole('button',{name:'編集',exact:true}).click();
   await page.getByLabel('表示名',{exact:true}).fill('ローカル変更');
   await page.getByRole('button',{name:'署名して保存',exact:true}).click();
@@ -114,6 +115,6 @@ try {
   assert.equal(published.length,2);assert.equal(published[1].kind,0);assert.equal(published[1].pubkey,userKey);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   assert.deepEqual(errors,[]);
-  console.log('PASS collapsed connection help, single connection cancel, mobile bunker login, auth challenge, distinct identity, signed mock publication, logout during signing, cancel, same-account reconnect, modal signing approval; zero public relay traffic.');
+  console.log(`PASS ${layout}: collapsed connection help, single connection cancel, bunker login, auth challenge, distinct identity, signed mock publication, logout during signing, cancel, same-account reconnect, modal signing approval; zero public relay traffic.`);
   console.log(`Screenshots: ${artifacts}`);
 } finally {await browser.close();for(const client of relay.clients)client.terminate();await new Promise(r=>relay.close(r));transportSecret.fill(0);userSecret.fill(0)}

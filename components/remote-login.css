@@ -1,9 +1,14 @@
-.remote-login{display:grid;gap:16px;min-width:0}
+.remote-login-dialog{--m3e-dialog-min-width:min(400px,calc(100vw - 32px));--m3e-dialog-max-width:min(400px,calc(100vw - 32px))}
+.remote-login{display:grid;gap:12px;min-width:0}
 .remote-login m3e-form-field{width:100%;min-width:0}
 .remote-login input{min-width:0;width:100%;font:inherit}
 .remote-login-help{font-size:13px;color:var(--md-sys-color-on-surface-variant)}
-.remote-login-help summary{cursor:pointer;padding:4px 0}
+.remote-login-help summary{cursor:pointer;padding:4px 0;line-height:20px}
 .remote-login-help p{margin:8px 0 0;line-height:1.6}
-.remote-login-actions,.remote-authorization{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.remote-authorization{padding:12px;border-radius:16px;background:var(--md-sys-color-surface-container)}
+.remote-login [role=alert]{margin:0;color:var(--md-sys-color-error)}
+.remote-login-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:4px}
+.remote-login-actions>m3e-button{min-width:0;--m3e-button-leading-space:12px;--m3e-button-trailing-space:12px}
+.remote-authorization{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px;border-radius:16px;background:var(--md-sys-color-surface-container)}
 .remote-authorization a{overflow-wrap:anywhere}
+.remote-login .remote-authorization{padding:0;border-radius:0;background:none}
+.remote-login .remote-authorization a{display:flex;align-items:center;min-height:40px}

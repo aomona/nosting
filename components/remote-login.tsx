@@ -26,7 +26,7 @@ export default function RemoteLogin({pending, onConnect, onExtension, onCancel, 
     } catch (error) { setError((error as Error).message); }
   }
   return <section className="remote-login" aria-label="リモート署名">
-    <M3eFormField variant="outlined"><label slot="label" htmlFor="bunker-token">bunker 接続URL</label>
+    <M3eFormField variant="outlined" hideSubscript="always"><label slot="label" htmlFor="bunker-token">bunker 接続URL</label>
       <input id="bunker-token" type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" value={token} disabled={pending}
         onChange={event => setToken(event.target.value)} onKeyDown={event => {if (event.key === 'Enter' && !event.nativeEvent.isComposing) {event.preventDefault(); connect();}}}/>
     </M3eFormField>

@@ -14,7 +14,7 @@ export default function ImageUpload({pubkey,onUploaded,onLogin,onBusy,onPending,
  const busyCallback=useRef(onBusy);busyCallback.current=onBusy;
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;abort.current?.abort();busyCallback.current(false)}},[]);
  useEffect(()=>{if(!file){setPreview('');return}const url=URL.createObjectURL(file);setPreview(url);return()=>URL.revokeObjectURL(url)},[file]);
- function select(f:File|undefined){setError('');if(!f)return;if(!['image/png','image/jpeg','image/webp'].includes(f.type)){setError('PNG・JPEG・WebPを選んでください');return}if(!f.size||f.size>MAX){setError('画像は30 MB以下にしてください');return}setFile(f)}
+ function select(f:File|undefined){setError('');if(!f)return;if(!['image/png','image/jpeg','image/webp','image/gif'].includes(f.type)){setError('PNG・JPEG・WebP・GIFを選んでください');return}if(!f.size||f.size>MAX){setError('画像は30 MB以下にしてください');return}setFile(f)}
  async function upload(){
   if(!file||lock.current||disabled)return;if(!pubkey){onLogin();return}
   lock.current=true;setSending(true);onBusy(true);setError('');const controller=new AbortController();abort.current=controller;let attempted=false;
@@ -36,7 +36,7 @@ export default function ImageUpload({pubkey,onUploaded,onLogin,onBusy,onPending,
   }catch(e:any){if(mounted.current)setError(controller.signal.aborted?'中断しました。送信開始後は画像が保存されている場合があります。':(e?.message||'アップロードできませんでした')+(attempted?' 応答が不明な場合、画像が保存されている可能性があります。':''))}
   finally{lock.current=false;abort.current=null;if(mounted.current)setSending(false);busyCallback.current(false)}
  }
- return <div className="petal-upload"><input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>{select(e.target.files?.[0]);e.target.value=''}}/>
+ return <div className="petal-upload"><input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={e=>{select(e.target.files?.[0]);e.target.value=''}}/>
 
   {file&&<div className="petal-upload-preview"><img src={preview} alt="アップロード前のプレビュー"/><div className="petal-upload-details"><p>画像は公開され、投稿を取り消しても残ります。</p><div className="petal-upload-actions"><M3eButton variant="filled" disabled={sending||disabled} onClick={upload}>{sending?'アップロード中…':'アップロード'}</M3eButton><M3eButton variant="text" onClick={()=>{if(sending)abort.current?.abort();else{setFile(null);setError('')}}}>{sending?'中断':'取り消す'}</M3eButton></div></div></div>}
   {error&&<p role="alert" className="petal-upload-error">{error}</p>}

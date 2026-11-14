@@ -10,7 +10,7 @@ with sync_playwright() as p:
   page.goto('http://127.0.0.1:4174/tests/browser/account-mutes-app.html')
   page.locator('.header-account-button').click()
   page.wait_for_function("document.querySelector('.header-account-button').textContent==='アカウント'")
-  page.locator('.mobile-header-settings' if width<650 else '.header-account-button').click()
+  page.locator('.mobile-header-settings[aria-label="設定"]' if width<650 else '.header-account-button').click()
   page.get_by_text('ミュート',exact=True).click()
   account=page.get_by_role('region',name='アカウントのミュート',exact=True)
   add=account.locator('.mute-toolbar').get_by_text('追加',exact=True)

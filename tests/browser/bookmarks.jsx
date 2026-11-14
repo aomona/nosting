@@ -8,7 +8,8 @@ function fixtures() {
  const make=(kind,content,tags=[],created_at=time)=>finalizeEvent({kind,content,tags,created_at},sk);
  const note=make(1,'以前に保存した投稿。タイムラインになくても、IDから読み込めます。'),deleted=make(1,'削除対象のテスト投稿'),remote=make(1,'別クライアントで保存した投稿。'),missing='a'.repeat(64);
  const list=make(10003,'opaque fixture ciphertext',[['e',remote.id],['custom','keep']]);
- const events=[note,deleted,remote,make(5,'',[['e',deleted.id]]),list,make(0,JSON.stringify({name:'mock-user',display_name:'テストユーザー'})),make(10002,'',[['r','wss://a.example'],['r','wss://b.example']])];
+ const mute=new URLSearchParams(location.search).has('muted')?[make(10000,'',[['e',remote.id]])]:[];
+ const events=[...mute,note,deleted,remote,make(5,'',[['e',deleted.id]]),list,make(0,JSON.stringify({name:'mock-user',display_name:'テストユーザー'})),make(10002,'',[['r','wss://a.example'],['r','wss://b.example']])];
  return {owner,otherOwner,note,deleted,remote,missing,list,events,next:make(10003,'',[['e',note.id]],time+1)};
 }
 const fixture=JSON.parse(sessionStorage.getItem('bookmark-qa-fixtures')||'null')||fixtures();

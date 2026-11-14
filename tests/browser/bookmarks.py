@@ -53,7 +53,7 @@ with sync_playwright() as p:
   assert page.evaluate("JSON.parse(localStorage.getItem('petal-bookmarks:v2:'+qa.owner)).event.tags.some(t=>t[1]===qa.noteId)")
   # Logout while reading, then log in with another ephemeral test account.
   page.evaluate("qa.slow=true;document.querySelector('.bookmark-toolbar m3e-icon-button').click()")
-  if width<=650: page.locator('.mobile-header-settings').click()
+  if width<=650: page.locator('.mobile-header-settings[aria-label="設定"]').click()
   else: page.get_by_text('アカウント',exact=True).click()
   page.get_by_text('ログアウト',exact=True).click()
   page.keyboard.press('Escape')
@@ -70,5 +70,22 @@ with sync_playwright() as p:
   assert not errors, errors
   results.append({'width':width,'reload':True,'account_isolation':True,'external_update':True,'partial_retry':True,'local_removal':True,'late_response_cancelled':True,'unmount_cleanup':True,'errors':errors})
   page.close()
+ # Account mute integration must also filter notes fetched only by the bookmark session.
+ page=browser.new_page(viewport={'width':390,'height':844},reduced_motion='reduce')
+ page.route('**/*',lambda route:route.continue_() if route.request.url.startswith('http://127.0.0.1:4175') else route.abort())
+ page.goto('http://127.0.0.1:4175/tests/browser/bookmarks.html?muted=1#/saved')
+ page.get_by_text('削除済み',exact=True).wait_for()
+ page.get_by_text('ログイン',exact=True).click()
+ page.wait_for_function("JSON.parse(localStorage.getItem('petal-bookmarks:v2:'+qa.owner)||'null')?.event && !document.querySelector('.bookmark-toolbar m3e-icon-button').disabled")
+ assert page.evaluate("qa.requests.some(f=>f[0]==='REQ'&&f.slice(2).some(q=>q.kinds?.includes(10000)))")
+ assert page.evaluate("qa.requests.some(f=>f[0]==='REQ'&&f.slice(2).some(q=>q.ids?.includes(qa.remoteId)))")
+ assert page.locator('article[data-note-id]').count()==0
+ assert page.evaluate("JSON.parse(localStorage.getItem('petal-bookmarks:v2:'+qa.owner)).event.tags.some(t=>t[1]===qa.remoteId)")
+ # Keep main's isolated direct-message route, without loading or publishing DMs here.
+ page.evaluate("location.hash='#/messages'")
+ page.get_by_role('button',name='DMを読み込む',exact=True).wait_for()
+ assert page.evaluate("qa.requests.every(f=>f[0]==='REQ'||f[0]==='CLOSE')")
+ page.close()
+ results.append({'account_mutes_apply_to_saved_notes':True,'dm_route_preserved':True})
  print(json.dumps(results,ensure_ascii=False,indent=2))
  browser.close()

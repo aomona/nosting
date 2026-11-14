@@ -10,7 +10,7 @@ assert.ok(!editor.includes('NIP-11のNIP-50'));
 assert.ok(editor.includes("discovery.current?.abort()"));
 assert.ok(app.includes('aria-label="プロフィールの操作"'));
 assert.ok(app.includes("onSelect={()=>setModal('author-relays')}"));
-assert.ok(app.includes('modal===displayModal&&<RelayEditor'));
+assert.ok(app.includes("modal===displayModal&&(displayModal==='relays'&&pubkey?<AccountRelayEditor"));
 assert.ok(app.includes('slot="header" className="relay-dialog-header"'));
 assert.ok(app.includes('onClick={()=>relayEditor.current?.reload()}'));
 assert.ok(editor.includes("discoveryPurpose==='self'&&<M3eIconButton"));

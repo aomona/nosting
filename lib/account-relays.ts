@@ -6,26 +6,35 @@ import {parseRelayFrame, validInboundEvent} from './relay-connections';
 
 export type AccountRelaySnapshot = {event: Event | null; partial: boolean};
 export type AccountRelayState = AccountRelaySnapshot & {owner: string; loading: boolean};
-export function accountRelayStorageKey(owner: string) {
-  if (!owner) return RELAY_STORAGE; // Legacy settings belong only to the guest.
-  if (!/^[a-f0-9]{64}$/.test(owner)) throw Error('公開鍵が不正です');
-  return `${RELAY_STORAGE}:${owner}`;
+/** Legacy browser settings are for guests only. Never read or delete account overrides. */
+export function readGuestConnections(storage: Pick<Storage, 'getItem'>): RelayConfig[] | null {
+  try {const raw = storage.getItem(RELAY_STORAGE); return raw === null ? null : parseRelays(JSON.parse(raw));} catch {return null;}
 }
-export function readAccountConnections(storage: Pick<Storage, 'getItem'>, owner: string): RelayConfig[] | null {
-  try {const raw = storage.getItem(accountRelayStorageKey(owner)); return raw === null ? null : parseRelays(JSON.parse(raw));} catch {return null;}
+export function saveGuestConnections(storage: Pick<Storage, 'setItem'>, owner: string, rows: RelayConfig[]) {
+  if (owner) throw Error('ログイン中はアカウントのリレー設定を保存してください');
+  const config = parseRelays(rows);
+  storage.setItem(RELAY_STORAGE, JSON.stringify(config));
+  return config;
 }
-/** NIP-65 is an inbox/outbox advertisement, not a local subscription permission.
- * Read both inboxes and outboxes locally; only outboxes receive our posts.
- * A separately saved local override never changes the public advertisement. */
-export function accountConnections(local: RelayConfig[] | null, event: Event | null): RelayConfig[] {
-  if (local !== null) return local;
-  if (!event) return DEFAULT_RELAYS;
-  const rows = parseRelayList(event).map(r => ({...r, read: true}));
-  // Keep a bootstrap reader even for an explicitly empty public list, without enabling writes.
+/** Runtime subscriptions are separate from the NIP-65 inbox/outbox editor.
+ * Read inboxes and outboxes; only advertised outboxes receive our publications.
+ * Missing/empty lists use an internal read-only bootstrap, never a default outbox. */
+export function accountConnections(event: Event | null): RelayConfig[] {
+  const rows = event ? parseRelayList(event).map(r => ({...r, read: true})) : [];
   return rows.length ? rows : DEFAULT_RELAYS.map(r => ({...r, write: false}));
 }
-export function relayLookupUrls(local: RelayConfig[] | null, event: Event | null): string[] {
-  return [...new Set([...DEFAULT_RELAYS.map(r => r.url), ...(local ?? []).filter(r => r.read || r.write).map(r => r.url), ...(event ? parseRelayList(event).map(r => r.url) : [])])];
+export function relayLookupUrls(event: Event | null, sources: string[] = []): string[] {
+  return [...new Set([...DEFAULT_RELAYS.map(r => r.url), ...sources, ...(event ? parseRelayList(event).map(r => r.url) : [])])];
+}
+/** Profile-only readers do not grant publication permission or alter the account list. */
+export function withTemporaryReaders(config: RelayConfig[], urls: string[]): RelayConfig[] {
+  const rows = config.map(r => ({...r}));
+  for (const raw of urls.slice(0, 16)) {
+    const url = normalizeRelay(raw), existing = rows.find(r => r.url === url);
+    if (existing) existing.read = true;
+    else if (rows.length < 32) rows.push({url, read: true, write: false});
+  }
+  return rows;
 }
 
 /** Opens bounded, short-lived reads, including relays still connecting in the feed pool. */
@@ -78,11 +87,18 @@ export class AccountRelaySession {
   private pending = false;
   private urls: string[] = [];
   private sources: string[] = [];
-  updateUrls(urls: string[]) {this.sources = urls; this.urls = [...new Set([...urls, ...(this.state.event ? parseRelayList(this.state.event).map(r => r.url) : [])])];}
+  private known = new Map<string, Event>();
+  private remember(event: Event | null) {
+    if (!event) return;
+    this.known.delete(event.pubkey); this.known.set(event.pubkey, event);
+    while (this.known.size > 8) this.known.delete(this.known.keys().next().value!);
+  }
   constructor(private changed: (state: AccountRelayState) => void, private load = loadAccountRelayList) {}
   start(owner: string, urls: string[]) {
-    this.stop(); this.sources = urls; this.urls = urls;
-    this.state = {owner, event: null, partial: true, loading: !!owner}; this.changed(this.state);
+    this.stop(); this.sources = urls;
+    const event = this.known.get(owner) ?? null;
+    this.urls = relayLookupUrls(event, urls);
+    this.state = {owner, event, partial: true, loading: !!owner}; this.changed(this.state);
     if (owner) void this.refresh();
   }
   stop() {this.request?.abort(); this.request = undefined; this.pending = false;}
@@ -98,9 +114,10 @@ export class AccountRelaySession {
       // Never regress a known event when a relay loses history or temporarily hides it.
       const stale = !!this.state.event && (!result.event || isLatestReplaceable(result.event, this.state.event));
       const event = result.event && isLatestReplaceable(this.state.event, result.event) ? result.event : this.state.event;
-      const expanded = relayLookupUrls(this.sources.map(url => ({url, read: true, write: false})), event);
+      const expanded = relayLookupUrls(event, this.sources);
       const added = expanded.some(url => !this.urls.includes(url));
       this.urls = expanded;
+      this.remember(event);
       this.state = {owner, event, partial: result.partial || stale || added, loading: false};
       this.pending = added || this.pending && result.partial;
     } catch {if (this.request !== request || request.signal.aborted) return; this.state = {...this.state, partial: true, loading: false};}
@@ -109,17 +126,20 @@ export class AccountRelaySession {
     if (this.pending) {this.pending = false; void this.refresh();}
   }
   observe(result: AccountRelaySnapshot) {
+    if (result.event && result.event.pubkey !== this.state.owner) return;
     this.stop();
     const stale = !!this.state.event && (!result.event || isLatestReplaceable(result.event, this.state.event));
     const event = result.event && isLatestReplaceable(this.state.event, result.event) ? result.event : this.state.event;
-    this.urls = relayLookupUrls(this.sources.map(url => ({url, read: true, write: false})), event);
+    this.urls = relayLookupUrls(event, this.sources);
+    this.remember(event);
     this.state = {...this.state, event, partial: result.partial || stale, loading: false}; this.changed(this.state);
   }
   accept(event: Event) {
     if (event.pubkey !== this.state.owner) return;
     // Cancel a read started before publication, which could otherwise report stale state.
-    this.stop(); this.urls = relayLookupUrls(this.sources.map(url => ({url, read: true, write: false})), event);
+    this.stop(); this.urls = relayLookupUrls(event, this.sources);
     if (isLatestReplaceable(this.state.event, event)) this.state = {...this.state, event, partial: false, loading: false};
+    this.remember(this.state.event);
     this.changed(this.state);
   }
 }

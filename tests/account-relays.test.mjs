@@ -49,12 +49,24 @@ const old=make(now-20,[['r',a,'read'],['r',b,'write'],['custom','keep']]),newer=
 const plain=x=>JSON.parse(JSON.stringify(x));
 const signal=()=>new AbortController().signal;
 const storage=new Map([[RELAY_STORAGE,JSON.stringify([{url:a,read:true,write:true}])]]),store={getItem:k=>storage.get(k)??null};
-assert.equal(api.readAccountConnections(store,owner),null);assert.equal(api.readAccountConnections(store,other),null);
-assert.equal(api.readAccountConnections(store,'')[0].url,a);
-storage.set(api.accountRelayStorageKey(owner),'[]');assert.equal(api.readAccountConnections(store,owner).length,0);assert.equal(api.readAccountConnections(store,other),null);
-assert.deepEqual(plain(api.accountConnections(null,old)),[{url:a,read:true,write:false},{url:b,read:true,write:true}]);
-assert.equal(api.accountConnections([],old).length,0);assert(api.accountConnections(null,make(now-1)).every(r=>r.read&&!r.write));
-assert(api.relayLookupUrls(null,old).includes(b));
+assert.equal(api.readGuestConnections(store)[0].url,a);
+const legacyKey=`${RELAY_STORAGE}:${owner}`;
+storage.set(legacyKey,'[]');storage.set(`${RELAY_STORAGE}:${other}`,JSON.stringify([{url:c,read:true,write:true}]));
+assert.equal(api.readGuestConnections(store)[0].url,a);
+const writes=[];const writer={setItem:(key,value)=>{writes.push(key);storage.set(key,value);}};
+assert.throws(()=>api.saveGuestConnections(writer,owner,[]),/ログイン中/);assert.equal(writes.length,0);
+api.saveGuestConnections(writer,'',[]);assert.equal(writes[0],RELAY_STORAGE);assert.equal(api.readGuestConnections(store).length,0);
+assert.equal(storage.get(legacyKey),'[]');assert.equal(storage.get(`${RELAY_STORAGE}:${other}`),JSON.stringify([{url:c,read:true,write:true}]));
+assert.deepEqual(plain(api.accountConnections(old)),[{url:a,read:true,write:false},{url:b,read:true,write:true}]);
+assert(api.accountConnections(null).every(r=>r.read&&!r.write));
+const empty=make(now-1);assert(api.accountConnections(empty).every(r=>r.read&&!r.write));
+assert.equal(api.editableRelayRows(empty).length,0);assert.equal(api.editableRelayRows(null).length,0);
+assert.deepEqual(plain(api.editableRelayRows(old)),[{url:a,read:true,write:false},{url:b,read:false,write:true}]);
+assert(api.relayLookupUrls(old).includes(b));assert(!api.relayLookupUrls(old).includes(c));
+const runtime=api.withTemporaryReaders(api.accountConnections(old),[c]);
+assert.deepEqual(plain(runtime.at(-1)),{url:c,read:true,write:false});
+assert.equal(api.accountConnections(old).length,2);assert.equal(api.editableRelayRows(old).length,2);
+assert.throws(()=>api.withTemporaryReaders([],['ws://localhost']),/wss/);
 
 scripts={[a]:[old],[b]:[newer]};let result=await api.loadAccountRelayList(owner,[a,b],signal());assert.equal(result.event.id,newer.id);assert(!result.partial);assert(instances.every(s=>s.readyState===3));
 assert(instances.every(s=>s.frames.at(-1)?.[0]==='CLOSE'));assert(instances.every(s=>s.frames.every(f=>f[0]!=='EVENT')));
@@ -97,9 +109,89 @@ session.start(owner,[a]);assert.equal(jobs.length,1);session.reconnect(a);sessio
 jobs[0].resolve({event:null,partial:true});await tick();assert.equal(jobs.length,2);assert(session.state.partial);
 session.start(other,[a]);assert(jobs[1].signal.aborted);jobs[1].resolve({event:old,partial:false});await tick();assert.equal(session.state.owner,other);assert.equal(session.state.event,null);
 session.start('',[a]);jobs[2].resolve({event:old,partial:false});await tick();assert.equal(session.state.owner,'');assert.equal(session.state.event,null);assert(!session.state.loading);
-session.start(owner,api.relayLookupUrls(null,old));jobs.at(-1).resolve({event:old,partial:false});await tick();assert.equal(session.state.event.id,old.id);assert(!session.state.partial);
+session.start(owner,api.relayLookupUrls(old));jobs.at(-1).resolve({event:old,partial:false});await tick();assert.equal(session.state.event.id,old.id);assert(!session.state.partial);
 const beforeReconnect=jobs.length;session.reconnect(a);assert.equal(jobs.length,beforeReconnect+1);jobs.at(-1).resolve({event:old,partial:false});await tick();
 const refresh=session.refresh();jobs.at(-1).resolve({event:null,partial:false});await refresh;assert.equal(session.state.event.id,old.id);assert(session.state.partial);
 session.reconnect(a);jobs.at(-1).resolve({event:newer,partial:false});await tick();assert.equal(session.state.event.id,newer.id);assert(jobs.at(-1).urls.includes(c));assert(session.state.loading);jobs.at(-1).resolve({event:newer,partial:false});await tick();assert(!session.state.partial);
 const staleRead=session.refresh();session.accept(make(now-1,[['r',a]]));jobs.at(-1).resolve({event:old,partial:false});await staleRead;assert.equal(session.state.event.created_at,now-1);assert(!session.state.partial);session.stop();
-console.log('PASS account relays: scoped storage, inbox/outbox projection, verified discovery/ties, delayed open/reconnect, partial/empty/missing states, lossy-list guards, exact signatures, pre/post-sign conflicts, close/account/logout cancellation, per-target ACKs and stale result isolation');
+// A verified list survives failure and returning to the same account, but never leaks to another owner.
+const known=session.state.event;
+session.start(other,api.relayLookupUrls(null));assert.equal(session.state.event,null);
+session.start(owner,api.relayLookupUrls(null));assert.equal(session.state.event.id,known.id);
+jobs.at(-1).resolve({event:null,partial:true});await tick();assert.equal(session.state.event.id,known.id);assert(session.state.partial);
+assert.deepEqual(plain(api.accountConnections(session.state.event)),plain(api.accountConnections(known)));
+session.start('',api.relayLookupUrls(null));assert.equal(session.state.event,null);assert(!session.state.loading);session.stop();
+console.log('PASS account relays: guest-only storage, no default outbox, inbox/outbox projection, temporary read-only connections, verified discovery/ties, delayed open/reconnect, partial/empty/missing states, retained per-account snapshots, lossy-list guards, exact signatures, pre/post-sign conflicts, close/account/logout cancellation, per-target ACKs and stale result isolation');
+
+// Exercise the actual App callbacks with storage/socket effects isolated at their boundary.
+// This catches accidental guest reads/writes and account configuration leaks in UI wiring.
+const appSource=await fs.readFile('components/petal-app.tsx','utf8');
+const ast=ts.createSourceFile('petal-app.tsx',appSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+const app=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='App');
+const callbackNames=['switchRelayAccount','saveLocalRelays','readAuthorRelay','saveOwnRelays'];
+const callbacks=app.body.statements.filter(node=>ts.isFunctionDeclaration(node)&&callbackNames.includes(node.name?.text)).map(node=>node.getText(ast));
+const apply=app.body.statements.find(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(d=>d.name.getText(ast)==='applyAccountConnections'));
+assert.equal(callbacks.length,4);assert(apply);
+const access=[],guestConfig=[{url:c,read:true,write:true}];
+storage.set(RELAY_STORAGE,JSON.stringify(guestConfig));
+const harness={...api,DEFAULT_RELAYS:(await load('relays')).DEFAULT_RELAYS,AbortController,AbortSignal,
+  activeUser:{current:''},pubkey:'',view:'home',profileKey:other,selectedAuthor:{current:other},
+  temporaryReaders:{current:{author:'',urls:[]}},guestRelays:{current:null},relayAccountAbort:{current:new AbortController()},
+  relayDiscovery:{current:{cancel(){}}},activeRelays:{current:[]},connections:[],useEffectEvent:fn=>fn,
+  localStorage:{getItem(key){access.push(['read',key]);return storage.get(key)??null;},setItem(key,value){access.push(['write',key]);storage.set(key,value);}},
+  setRelays(){},connect(config){harness.activeRelays.current=config;harness.connections.push(plain(config));},
+};
+const integrationJobs=[];
+harness.accountRelays={current:new api.AccountRelaySession(state=>{harness.accountRelayState=state;},(key,urls,signal)=>new Promise(resolve=>integrationJobs.push({key,urls,signal,resolve})))};
+vm.createContext(harness);
+vm.runInContext(ts.transpileModule([...callbacks,apply.getText(ast),'globalThis.applyConnections = applyAccountConnections;'].join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,harness);
+harness.switchRelayAccount('');assert.deepEqual(plain(harness.activeRelays.current),guestConfig);assert.deepEqual(access,[['read',RELAY_STORAGE]]);
+harness.activeUser.current=owner;harness.pubkey=owner;harness.switchRelayAccount(owner);
+assert.equal(access.length,1);assert(harness.activeRelays.current.every(r=>!r.write));assert(!integrationJobs.at(-1).urls.includes(c));
+assert.throws(()=>harness.saveLocalRelays(guestConfig),/ログイン中/);assert.equal(access.length,1);
+harness.accountRelays.current.observe({event:old,partial:false});harness.applyConnections();
+assert.deepEqual(plain(harness.activeRelays.current),plain(api.accountConnections(old)));
+harness.view='profile';harness.readAuthorRelay(c);assert.equal(harness.activeRelays.current.at(-1).write,false);assert.equal(access.length,1);
+assert.equal(harness.accountRelays.current.state.event.id,old.id);
+harness.view='home';harness.applyConnections();assert(!harness.activeRelays.current.some(r=>r.url===c));
+const priorAbort=harness.relayAccountAbort.current;
+harness.activeUser.current=other;harness.pubkey=other;harness.switchRelayAccount(other);assert(priorAbort.signal.aborted);
+assert.equal(access.length,1);assert.equal(harness.accountRelays.current.state.event,null);assert(harness.activeRelays.current.every(r=>!r.write));
+harness.activeUser.current=owner;harness.pubkey=owner;harness.switchRelayAccount(owner);assert.deepEqual(plain(harness.activeRelays.current),plain(api.accountConnections(old)));
+integrationJobs.at(-1).resolve({event:null,partial:true});await tick();harness.applyConnections();assert.deepEqual(plain(harness.activeRelays.current),plain(api.accountConnections(old)));
+harness.accountRelays.current.observe({event:empty,partial:false});harness.applyConnections();assert(harness.activeRelays.current.every(r=>!r.write));
+harness.activeUser.current='';harness.pubkey='';harness.switchRelayAccount('');assert.deepEqual(plain(harness.activeRelays.current),guestConfig);
+harness.saveLocalRelays([]);assert.deepEqual(plain(harness.activeRelays.current),[]);assert.deepEqual(access,[['read',RELAY_STORAGE],['read',RELAY_STORAGE],['write',RELAY_STORAGE]]);
+assert.equal(storage.get(legacyKey),'[]');assert.equal(storage.get(`${RELAY_STORAGE}:${other}`),JSON.stringify(guestConfig));
+harness.accountRelays.current.stop();
+
+// The actual save callback combines dialog and account cancellation before accepting a signed list.
+let appPublications=0,appSignatures=0,finishSign;
+harness.relaySaving={current:false};harness.busy=false;harness.setBusy=value=>{harness.busy=value;};
+harness.loadOwnRelays=async()=>({event:old,partial:false});
+harness.window={nostr:{signEvent:async event=>{appSignatures++;await new Promise(resolve=>{finishSign=resolve;});return nostr.finalizeEvent(plain(event),sk);}}};
+harness.publishAccountRelayList=async()=>{appPublications++;return {confirmed:1,total:1};};
+for(const cancellation of ['close','logout','switch']){
+  harness.activeUser.current=owner;harness.pubkey=owner;harness.switchRelayAccount(owner);
+  const controller=new AbortController();
+  const saving=harness.saveOwnRelays(old,rows,controller.signal);
+  await tick();assert(harness.busy);assert(harness.relaySaving.current);
+  if(cancellation==='close')controller.abort();
+  else {const next=cancellation==='logout'?'':other;harness.activeUser.current=next;harness.pubkey=next;harness.switchRelayAccount(next);}
+  finishSign();await assert.rejects(()=>saving,/中止|ログイン/);
+  assert.equal(appPublications,0);assert(!harness.busy);assert(!harness.relaySaving.current);
+}
+assert.equal(appSignatures,3);harness.accountRelays.current.stop();
+
+// Evaluate the real JSX selector: only the account editor is mounted for a signed-in user's settings.
+let selector;
+function visit(node){if(ts.isJsxExpression(node)&&node.expression?.getText(ast).startsWith("modal===displayModal&&(displayModal==='relays'&&pubkey?"))selector=node.expression;ts.forEachChild(node,visit);}
+visit(ast);assert(selector);
+const jsx={jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
+const ui={exports:{},require:()=>jsx,AccountRelayEditor:'account',RelayEditor:'guest-or-author',modal:'relays',displayModal:'relays',pubkey:owner,profileKey:other,relays:[],statuses:{},busy:false,relayEditor:{current:null},setRelayDiscovering(){},loadOwnRelays(){},saveOwnRelays(){},saveLocalRelays(){},readAuthorRelay(){}};
+vm.createContext(ui);
+const selectorJS=ts.transpileModule('globalThis.selection = '+selector.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+vm.runInContext("{\n"+selectorJS+"\n}",ui);assert.equal(ui.selection.type,'account');assert.equal(ui.selection.props.save,ui.saveOwnRelays);
+ui.pubkey='';vm.runInContext("{\n"+selectorJS+"\n}",ui);assert.equal(ui.selection.type,'guest-or-author');assert.equal(ui.selection.props.onSave,ui.saveLocalRelays);assert.equal(ui.selection.props.onRead,undefined);
+ui.pubkey=owner;ui.modal=ui.displayModal='author-relays';vm.runInContext("{\n"+selectorJS+"\n}",ui);assert.equal(ui.selection.props.onRead,ui.readAuthorRelay);
+console.log('PASS App relay integration: login ignores all local settings, guest-only saves, account switch/logout isolation, retained known/empty lists, temporary readers released, single settings editor');

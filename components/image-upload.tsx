@@ -43,7 +43,7 @@ export default function ImageUpload({pubkey,onUploaded,onLogin,onBusy,onPending,
  }
  return <div className="petal-upload"><input ref={input} type="file" accept="image/png,image/jpeg,image/webp,.jpg,.jpeg,.jpe" hidden onChange={e=>{select(e.target.files?.[0]);e.target.value=''}}/>
 
-  {file&&<div className="petal-upload-preview"><img src={preview} alt="アップロード前のプレビュー"/><div className="petal-upload-details"><p>画像は公開され、投稿を取り消しても残ります。</p><div className="petal-upload-actions"><M3eButton variant="filled" disabled={sending||disabled} onClick={upload}>{sending?'アップロード中…':'アップロード'}</M3eButton><M3eButton variant="text" onClick={()=>{if(sending)abort.current?.abort();else{selection.current++;setFile(null);setError('')}}}>{sending?'中断':'取り消す'}</M3eButton></div></div></div>}
+  {file&&<div className="petal-upload-preview"><img src={preview||undefined} alt="アップロード前のプレビュー"/><div className="petal-upload-details"><p>画像は公開され、投稿を取り消しても残ります。</p><div className="petal-upload-actions"><M3eButton variant="filled" disabled={sending||disabled} onClick={upload}>{sending?'アップロード中…':'アップロード'}</M3eButton><M3eButton variant="text" onClick={()=>{if(sending)abort.current?.abort();else{selection.current++;setFile(null);setError('')}}}>{sending?'中断':'取り消す'}</M3eButton></div></div></div>}
   {error&&<p role="alert" className="petal-upload-error">{error}</p>}
   <div className="composer-footer"><M3eIconButton aria-label="画像を追加" title="画像を追加" disabled={disabled||sending} onClick={()=>input.current?.click()}><ImagePlus/></M3eIconButton>{action}</div>
  </div>

@@ -13,6 +13,7 @@ with sync_playwright() as p:
   page=browser.new_page(viewport={'width':width,'height':height},reduced_motion='reduce')
   errors=[]
   page.on('pageerror',lambda e:errors.append(str(e)))
+  page.on('console',lambda msg:errors.append(msg.text) if msg.type=='error' else None)
   page.route('**/*',lambda route:route.continue_() if route.request.url.startswith('http://127.0.0.1:4174') else route.abort())
   page.goto('http://127.0.0.1:4174/tests/browser/image-upload.html')
   page.wait_for_function("customElements.get('m3e-button') && document.querySelector('input[type=file]')")

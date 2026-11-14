@@ -1,0 +1,13 @@
+.reaction-panel{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;max-width:400px;width:min(400px,calc(100vw - 80px))}
+.reaction-options,.reaction-own{display:flex;flex-wrap:wrap;gap:8px}
+.reaction-options m3e-button{font-size:23px;min-width:48px}
+.reaction-own m3e-button::part(label){display:flex;align-items:center;gap:8px}
+.reaction-panel form{display:flex;align-items:center;gap:8px}
+.reaction-panel m3e-form-field{flex:1;min-width:0;width:100%}
+.reaction-panel input{min-width:0;width:100%;font:inherit;color:inherit;background:transparent;border:0;outline:none}
+.reaction-panel details form{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:12px}
+.reaction-panel summary{cursor:pointer;font-size:14px}
+.reaction-panel p{margin:0;font-size:14px}
+.reaction-panel [role=alert]{color:var(--md-sys-color-error,#ba1a1a)}
+
+.reaction-panel>*{min-width:0}

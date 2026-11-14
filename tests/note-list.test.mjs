@@ -9,5 +9,5 @@ assert.match(source,/busy=\{busy&&replySet\.has\(n\.id\)\}/);
 assert.match(source,/const noteActions=useRef<NoteActions>/);
 assert.match(source,/const openQuote=useMemo\(\(\)=>\(n:NostrEvent\)=>noteActions\.current\.openDetail\(n\),\[\]\)/);
 assert.match(source,/<QuoteOpenContext\.Provider value=\{openQuote\}>/);
-assert.match(source,/const bookmarkSet=useMemo/);assert.match(source,/const likedSet=useMemo/);assert.match(source,/const replySet=useMemo/);assert.match(source,/const filtered=useMemo/);
+assert.match(source,/const bookmarkSet=useMemo/);assert.match(source,/<ReactionButtons target=\{n\}/);assert.match(source,/const replySet=useMemo/);assert.match(source,/const filtered=useMemo/);
 console.log('PASS source guard: memoized keyed list under unchanged feed wrapper, stable action ref/QuoteOpen callback, memoized list inputs; browser QA required for render/state/focus');

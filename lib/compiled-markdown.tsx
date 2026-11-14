@@ -2,7 +2,7 @@ import {mentionKey,mentionTree} from './mentions';
 import Mention from '../components/mention';
 import {emojiMap,emojiParts,type EmojiMap} from './custom-emoji';
 import {CustomEmoji} from '../components/custom-emoji';
-import {Fragment,type ReactElement} from 'react';
+import {Fragment,type ReactElement,type HTMLAttributes} from 'react';
 import {nip19} from 'nostr-tools';
 import {jsx,jsxs} from 'react/jsx-runtime';
 import {unified} from 'unified';
@@ -13,7 +13,8 @@ import remarkRehype from 'remark-rehype';
 import {toJsxRuntime} from 'hast-util-to-jsx-runtime';
 import type {Root as MdRoot} from 'mdast';
 import type {Root,RootContent,Element} from 'hast';
-import {extractMarkdownMedia,safeMarkdownLink} from './markdown-media';
+import {arrangeInlineMedia,extractMarkdownMedia,safeMarkdownLink} from './markdown-media';
+import {InlineMedia} from '../components/inline-media';
 import type {NoteMedia} from './note-media';
 
 type Compiled={body:ReactElement;items:NoteMedia[];sensitive:boolean};
@@ -73,9 +74,11 @@ export function compileMarkdown(content:string,tags:string[][]=[]):Compiled{
  compactReferences(source);
  const items=extractMarkdownMedia(source,relevant);
  const tree=transformer.runSync(source) as Root;
+ arrangeInlineMedia(tree);
  const nodes=secureTree(tree)+mentionTree(tree)+emojifyTree(tree,emojiMap(relevant));
  const body=toJsxRuntime(tree,{Fragment,jsx,jsxs,passKeys:true,components:{
   span:(props:any)=>props['data-mention-key']?<Mention pubkey={props['data-mention-key']}/>:props['data-emoji-code']&&props['data-emoji-url']?<CustomEmoji code={props['data-emoji-code']} url={props['data-emoji-url']}/>:<span>{props.children}</span>,
+  div:(props:HTMLAttributes<HTMLDivElement>&{'data-media-indices'?:string})=>props['data-media-indices']!==undefined?<InlineMedia items={String(props['data-media-indices']).split(',').map(index=>items[Number(index)])}/>:<div>{props.children}</div>,
   table:({children})=><div className="petal-markdown-table" tabIndex={0} role="region" aria-label="表"><table>{children}</table></div>,
  }});
  const value={body,items,sensitive:relevant.some(t=>t[0]==='content-warning')};

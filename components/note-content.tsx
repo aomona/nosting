@@ -8,6 +8,7 @@ import {Expand,ImageOff,Play,X,EyeOff} from 'lucide-react';
 import {mediaAspectRatio,type NoteMedia} from '../lib/note-media';
 import {compileMarkdown} from '../lib/compiled-markdown';
 import MarkdownContent from './markdown-content';
+import {InlineMediaContext} from './inline-media';
 import QuoteCard from './quote-card';
 import {quoteIds,quoteDisplayContent} from '../lib/quotes';
 import './note-content.css';
@@ -32,7 +33,7 @@ function Content({content,tags,noteId,quoteDepth}:{content:string;tags:string[][
  function conceal(){setOpen(false);setExpanded(null);setRevealed(false);}
  return <div className="petal-note-body">
   {warning&&<M3eCard variant="filled" className="petal-content-warning"><div className="petal-warning-inner"><div className="petal-warning-copy"><span>センシティブな内容</span>{!visible&&warning[1]?.trim()&&<span className="petal-warning-reason">{warning[1].slice(0,300)}</span>}</div><M3eButton variant="tonal" onClick={()=>visible?conceal():setRevealed(true)} aria-expanded={visible?'true':'false'}>{visible&&<EyeOff slot="icon"/>}{visible?'隠す':'表示する'}</M3eButton></div></M3eCard>}
-  {visible&&<><MarkdownContent content={displayContent} tags={tags}/>{data.items.length>0&&<div className={'petal-note-media'+(data.items.length>1?' petal-media-grid':'')}>{data.items.map(item=><Media key={item.url} item={item} onExpand={m=>{setExpanded(m);setOpen(true)}}/>)}</div>}
+  {visible&&<><InlineMediaContext.Provider value={items=><div className={'petal-note-media'+(items.length>1?' petal-media-grid':'')}>{items.map(item=><Media key={item.url} item={item} onExpand={m=>{setExpanded(m);setOpen(true)}}/>)}</div>}><MarkdownContent content={displayContent} tags={tags}/></InlineMediaContext.Provider>
   {quotes.map(id=><QuoteCard key={id} id={id}/>)}
   {expanded&&<M3eDialog open={open} onClosed={()=>{setOpen(false);setExpanded(null)}} dismissible closeLabel="閉じる" aria-label="画像を拡大" className="petal-image-dialog"><X slot="close-icon"/><img src={expanded.url} alt={expanded.alt||'投稿の画像'} referrerPolicy="no-referrer"/></M3eDialog>}</>}
  </div>;

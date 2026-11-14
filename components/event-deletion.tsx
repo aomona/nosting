@@ -25,8 +25,9 @@ export function NoteEventMenu({event,repost}:{event?:DeletionTarget;repost?:Dele
  if(!context||!targets.length)return null;
  return <DropdownMenu modal={false}><DropdownMenuTrigger ref={trigger} className="note-menu-trigger" aria-label="投稿の操作"><MoreHorizontal size={18} aria-hidden="true"/></DropdownMenuTrigger><DropdownMenuContent className="profile-action-menu" portalContainer={typeof document!=='undefined'?document.querySelector('m3e-theme'):null} align="end" sideOffset={8} onClick={event=>event.stopPropagation()} onCloseAutoFocus={event=>{if(openingDialog.current){event.preventDefault();openingDialog.current=false}}}>{targets.map(target=><DropdownMenuItem key={target.id} onSelect={()=>{openingDialog.current=true;context.request(target,trigger.current)}}><Trash2 aria-hidden="true"/>{target.kind===6?'リポストの削除を要求':'投稿の削除を要求'}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>;
 }
-export default function EventDeletionProvider({tracker,owner,currentOwner,publish,children}:{
+export default function EventDeletionProvider({tracker,owner,currentOwner,publish,sign,authorization,children}:{
  tracker:DeletionTracker;owner:string;currentOwner:()=>string;
+ sign?:(event:EventTemplate)=>Promise<Event>;authorization?:ReactNode;
  publish:(event:Event)=>Promise<{confirmed:number;total:number}>;children:ReactNode;
 }){
  const [target,setTarget]=useState<DeletionTarget|null>(null),[busy,setBusy]=useState(false),[status,setStatus]=useState('');
@@ -48,12 +49,12 @@ export default function EventDeletionProvider({tracker,owner,currentOwner,publis
   const controller=new AbortController();pending.current=controller;setBusy(true);setStatus('');
   try{
    const result=await sendDeletion({target,owner,currentOwner,signal:controller.signal,
-    sign:event=>{const extension=(window as Window&{nostr?:{signEvent:(event:EventTemplate)=>Promise<Event>}}).nostr;if(!extension)throw Error('署名拡張機能に接続してください');return extension.signEvent(event)},publish});
+    sign:sign??(event=>{const extension=(window as Window&{nostr?:{signEvent:(event:EventTemplate)=>Promise<Event>}}).nostr;if(!extension)throw Error('署名拡張機能に接続してください');return extension.signEvent(event)}),publish});
    if(controller.signal.aborted||currentOwner()!==owner)return;
    if(result.confirmed){tracker.accept(result.event);setTarget(null);setStatus(`${result.confirmed}/${result.total}リレーで削除要求を確認しました`)}
    else setStatus('受信確認が取れません。削除要求が届いている可能性があります');
   }catch(error){if(!controller.signal.aborted&&currentOwner()===owner)setStatus(error instanceof Error?error.message:'削除要求を送信できませんでした')}
   finally{if(pending.current===controller){pending.current=null;setBusy(false)}}
  }
- return <Context.Provider value={context}>{children}<M3eDialog open={!!target||!!status} dismissible closeLabel="閉じる" onClosing={cancel} onClosed={closed} aria-label="削除要求"><X slot="close-icon"/><h2 slot="header">削除要求</h2>{target&&<><p>リレーや他の端末に残る場合があります。</p><M3eButton variant="filled" disabled={busy} onClick={()=>void confirm()}>{busy?'送信中…':'署名して削除を要求'}</M3eButton><M3eButton variant="text" onClick={cancel}>キャンセル</M3eButton></>}{status&&<p role="status">{status}</p>}</M3eDialog></Context.Provider>;
+ return <Context.Provider value={context}>{children}<M3eDialog open={!!target||!!status} dismissible closeLabel="閉じる" onClosing={cancel} onClosed={closed} aria-label="削除要求"><X slot="close-icon"/><h2 slot="header">削除要求</h2>{authorization}{target&&<><p>リレーや他の端末に残る場合があります。</p><M3eButton variant="filled" disabled={busy} onClick={()=>void confirm()}>{busy?'送信中…':'署名して削除を要求'}</M3eButton><M3eButton variant="text" onClick={cancel}>キャンセル</M3eButton></>}{status&&<p role="status">{status}</p>}</M3eDialog></Context.Provider>;
 }

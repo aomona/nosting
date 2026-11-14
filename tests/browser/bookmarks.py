@@ -22,7 +22,7 @@ with sync_playwright() as p:
   page.get_by_text('削除済み',exact=True).wait_for()
   assert page.locator('article[data-note-id]').count()==1
   assert page.evaluate("window.qa.requests.some(f=>f[0]==='REQ'&&f.slice(2).some(q=>q.ids?.includes(window.qa.noteId)))")
-  page.get_by_text('ログイン',exact=True).click()
+  page.get_by_role('button',name='ログイン',exact=True).click()
   page.get_by_text('別クライアントで保存した投稿。',exact=True).wait_for()
   page.get_by_text('非公開は未対応',exact=False).wait_for()
   assert page.locator('article[data-note-id]').count()==1
@@ -58,7 +58,7 @@ with sync_playwright() as p:
   page.get_by_text('ログアウト',exact=True).click()
   page.keyboard.press('Escape')
   page.evaluate('qa.slow=false;qa.account=qa.otherOwner')
-  page.get_by_text('ログイン',exact=True).click()
+  page.get_by_role('button',name='ログイン',exact=True).click()
   page.get_by_text('ブックマークはまだありません',exact=True).wait_for()
   page.wait_for_timeout(1700)
   assert page.locator('article[data-note-id]').count()==0
@@ -75,7 +75,7 @@ with sync_playwright() as p:
  page.route('**/*',lambda route:route.continue_() if route.request.url.startswith('http://127.0.0.1:4175') else route.abort())
  page.goto('http://127.0.0.1:4175/tests/browser/bookmarks.html?muted=1#/saved')
  page.get_by_text('削除済み',exact=True).wait_for()
- page.get_by_text('ログイン',exact=True).click()
+ page.get_by_role('button',name='ログイン',exact=True).click()
  page.wait_for_function("JSON.parse(localStorage.getItem('petal-bookmarks:v2:'+qa.owner)||'null')?.event && !document.querySelector('.bookmark-toolbar m3e-icon-button').disabled")
  assert page.evaluate("qa.requests.some(f=>f[0]==='REQ'&&f.slice(2).some(q=>q.kinds?.includes(10000)))")
  assert page.evaluate("qa.requests.some(f=>f[0]==='REQ'&&f.slice(2).some(q=>q.ids?.includes(qa.remoteId)))")

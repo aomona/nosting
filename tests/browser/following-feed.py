@@ -62,7 +62,7 @@ with sync_playwright() as p:
   else: page.locator('.header-account-button').click()
   page.get_by_text('ログアウト',exact=True).click()
   page.evaluate('window.qa.loginKey=window.qa.otherOwner;window.qa.slow=false')
-  page.get_by_text('署名拡張機能に接続',exact=True).click()
+  page.locator('m3e-dialog[open] m3e-list-action').filter(has_text='ログイン').click()
   page.wait_for_timeout(300)
   page.locator('.tabs m3e-button').nth(1).click()
   page.wait_for_timeout(1200)

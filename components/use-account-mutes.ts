@@ -4,13 +4,13 @@ import type {Event} from 'nostr-tools';
 import {accountEventMuted, loadMuteList, readMuteList, saveMuteEdit, type MuteEdit, type MuteList, type MuteSigner} from '../lib/account-mutes';
 import {isLatestReplaceable} from '../lib/latest-event';
 
-export function useAccountMutes(owner: string, relays: string[], currentOwner: () => string, publish: (event: Event) => Promise<{confirmed: number; total: number}>) {
+export function useAccountMutes(owner: string, relays: string[], currentOwner: () => string, publish: (event: Event) => Promise<{confirmed: number; total: number}>, getSigner?: () => MuteSigner | undefined) {
  const relayKey = JSON.stringify(relays), key = owner + relayKey;
  const [state, setState] = useState<{key: string; list: MuteList | null; ready: boolean; loading: boolean; error: string}>({key: '', list: null, ready: false, loading: false, error: ''});
  const current = useRef(state), active = useRef(key), request = useRef<AbortController | null>(null), locked = useRef<string | null>(null);
- const callbacks = useRef({currentOwner, publish});
- useLayoutEffect(() => {active.current = key; callbacks.current = {currentOwner, publish};}, [key, currentOwner, publish]);
- const signer = () => (window as Window & {nostr?: MuteSigner}).nostr;
+ const callbacks = useRef({currentOwner, publish, getSigner});
+ useLayoutEffect(() => {active.current = key; callbacks.current = {currentOwner, publish, getSigner};}, [key, currentOwner, publish, getSigner]);
+ const signer = () => callbacks.current.getSigner ? callbacks.current.getSigner() : (window as Window & {nostr?: MuteSigner}).nostr;
  const reload = useCallback(async () => {
   if (!owner || locked.current === key) return;
   request.current?.abort(); const controller = new AbortController(); request.current = controller;

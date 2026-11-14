@@ -10,15 +10,16 @@ import {dmPublish,dmQuery} from '../lib/dm-relay';
 import {deliverDm,prepareDm,resolveDmRelays,type DmContext,type PendingDm} from '../lib/dm-session';
 import {normalizeRelay} from '../lib/relays';
 import './direct-messages.css';
+import type {Signer} from '../lib/signer';
 const short=(key:string)=>key.slice(0,8)+'…'+key.slice(-4);
 type DmView='conversation'|'peers'|'new'|'requests'|'settings';
 function DmIcon({label,children,disabled=false,active,filled=false,count,onClick}:{label:string;children:ReactNode;disabled?:boolean;active?:boolean;filled?:boolean;count?:number;onClick:(trigger:HTMLElement)=>void}){
  const id=useId();
  return <span className="dm-icon-control"><M3eIconButton id={id} aria-label={label} aria-pressed={active} title={label} variant={filled?'filled':active?'tonal':'standard'} disabled={disabled} onClick={e=>onClick(e.currentTarget as HTMLElement)}>{children}</M3eIconButton>{!!count&&<span className="dm-badge" aria-hidden="true">{count}</span>}<M3eTooltip htmlFor={id} position="below">{label}</M3eTooltip></span>
 }
-type Props={owner:string;lookup:string[];onLogin:()=>void};
+type Props={owner:string;lookup:string[];onLogin:()=>void;getSigner?:()=>Signer|undefined};
 export default function DirectMessages(props:Props){return props.owner?<Inbox key={props.owner} {...props}/>:<div className="empty"><M3eButton onClick={props.onLogin}>ログイン</M3eButton></div>}
-function Inbox({owner,lookup}:Props){
+function Inbox({owner,lookup,getSigner}:Props){
  const [messages,setMessages]=useState<Rumor[]>([]),[peer,setPeer]=useState(''),[text,setText]=useState(''),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[allowAuth,setAllowAuth]=useState(false),[relayText,setRelayText]=useState(''),[pending,setPending]=useState<PendingDm|null>(null);
  const [accepted,setAccepted]=useState<string[]>([]),[blocked,setBlocked]=useState<string[]>([]),[panelView,setPanelView]=useState<DmView>('peers'),[peerDraft,setPeerDraft]=useState(''),[attention,setAttention]=useState(false),[statusOpen,setStatusOpen]=useState(false),[composerFocus,setComposerFocus]=useState(0),[started,setStarted]=useState(false),[until,setUntil]=useState<number|undefined>(),[historyLimited,setHistoryLimited]=useState(false);
  const panel=useRef<HTMLElement>(null),panelTrigger=useRef<HTMLElement|null>(null);
@@ -48,7 +49,7 @@ function Inbox({owner,lookup}:Props){
  function policy(a:string[],b:string[]){setAccepted(a);setBlocked(b);try{localStorage.setItem('nosting-dm-policy:'+owner,JSON.stringify({accepted:a.slice(-500),blocked:b.slice(-500)}))}catch{report('受信設定を保存できません。この画面を閉じるまで有効です')}}
  async function run(action:(context:DmContext)=>Promise<void>){
   if(lock.current)return;const focusBefore=document.activeElement as HTMLElement|null;lock.current=true;setBusy(true);report('',false);const controller=new AbortController();operation.current=controller;
-  try{const signer=(window as Window&{nostr?:DmSigner}).nostr;if(!signer?.nip44?.encrypt||!signer?.nip44?.decrypt||!signer.signEvent)throw new DmError('NIP-44対応の署名拡張機能が必要です');if(await signer.getPublicKey()!==owner)throw new DmError('アカウントが変わりました');assertActive(controller.signal);await action({owner,signer,signal:controller.signal,allowAuth,lookup})}
+  try{const signer=getSigner?getSigner():(window as Window&{nostr?:DmSigner}).nostr;if(!signer?.nip44?.encrypt||!signer?.nip44?.decrypt||!signer.signEvent)throw new DmError('NIP-44対応の署名拡張機能が必要です');if(await signer.getPublicKey()!==owner)throw new DmError('アカウントが変わりました');assertActive(controller.signal);await action({owner,signer:{...signer,nip44:signer.nip44},signal:controller.signal,allowAuth,lookup})}
   catch(error){if(mounted.current&&!controller.signal.aborted)report(error instanceof DmError?error.message:'処理できませんでした。署名・復号の許可と接続を確認してください')}
   finally{lock.current=false;if(mounted.current){setBusy(false);requestAnimationFrame(()=>{if(!mounted.current||document.activeElement!==document.body)return;if(focusBefore?.isConnected&&!focusBefore.hasAttribute('disabled'))focusBefore.focus();else panel.current?.querySelector<HTMLElement>('#dm-text:not(:disabled),.dm-compose m3e-button:not([disabled]),.dm-panel-title')?.focus()})}}
  }

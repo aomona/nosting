@@ -127,6 +127,7 @@ const callback=app.body.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.
 const notices=[],notes=[],writes=[{url:a,read:true,write:true}];
 const harness={AbortSignal,...api,...await load('relays'),...await load('account-relays'),...await load('publication-tags'),verifyEvent:nostr.verifyEvent,
  pubkey:owner,activeUser:{current:owner},relayAccountAbort:{current:new AbortController()},publicationPending:{current:false},accountRelays:{current:{state:{owner,event:own}}},activeRelays:{current:writes},sockets:{current:[]},setBusy(){},notify:m=>notices.push(m),setNotes:fn=>notes.push(fn([])),retainFeed:events=>events,window:{nostr:{signEvent:async event=>nostr.finalizeEvent(plain(event),sk)}},login:async()=>{},publisher:{current:{publish:async()=>{throw Error('must route through recipient delivery');}}}};
+harness.signerSession={current:{signEvent:(event)=>harness.window.nostr.signEvent(event)}};
 vm.createContext(harness);vm.runInContext(ts.transpileModule(callback.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,harness);
 reset({[a]:{events:[own,recipient],note:true,metadata:true},[b]:{note:true,metadata:true},'wss://yabu.me/':{events:[recipient]}});
 assert(await harness.publish(1,`Hello nostr:${nostr.nip19.npubEncode(other)}`,[]));assert.equal(notes.length,1);assert(notes[0][0].tags.some(t=>t[0]==='p'&&t[1]===other));assert.match(notices.at(-1),/2\/2/);assert.deepEqual(writes,[{url:a,read:true,write:true}]);assert(!harness.publicationPending.current);

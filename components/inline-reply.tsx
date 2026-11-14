@@ -14,7 +14,7 @@ export interface InlineReplyProps {
   name: string;
   busy: boolean;
   /** Return true only after relay acceptance. False keeps the draft open. */
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, signal: AbortSignal) => Promise<boolean>;
   onCancel: () => void;
 }
 
@@ -26,6 +26,7 @@ export default function InlineReply({noteId, instanceId=noteId, name, busy, onSe
   const [error, setError] = useState('');
   const input = useRef<HTMLTextAreaElement>(null);
   const locked = useRef(false);
+  const request = useRef<AbortController | null>(null);
   const mounted = useRef(true);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const callback = useRef(onCancel);
@@ -34,7 +35,7 @@ export default function InlineReply({noteId, instanceId=noteId, name, busy, onSe
   useEffect(() => {
     mounted.current = true;
     input.current?.focus({preventScroll: true});
-    return () => { mounted.current = false; clearTimeout(closeTimer.current); };
+    return () => { mounted.current = false; request.current?.abort(); clearTimeout(closeTimer.current); };
   }, []);
 
   useLayoutEffect(() => {
@@ -76,7 +77,9 @@ export default function InlineReply({noteId, instanceId=noteId, name, busy, onSe
     setSending(true);
     setError('');
     try {
-      const accepted = await onSend(value);
+      const controller = new AbortController();
+      request.current = controller;
+      const accepted = await onSend(value, controller.signal);
       if (accepted) localDraft.accepted(text);
       if (!mounted.current) return;
       if (accepted) close();
@@ -84,6 +87,7 @@ export default function InlineReply({noteId, instanceId=noteId, name, busy, onSe
     } catch {
       if (mounted.current) setError('送信できませんでした。もう一度お試しください。');
     } finally {
+      request.current = null;
       locked.current = false;
       if (mounted.current) setSending(false);
     }

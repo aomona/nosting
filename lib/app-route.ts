@@ -1,9 +1,9 @@
-export type AppRoute = {view:'home'|'explore'|'notifications'|'saved'} | {view:'profile';id:string} | {view:'thread';id:string};
+export type AppRoute = {view:'home'|'explore'|'notifications'|'messages'|'saved'} | {view:'profile';id:string} | {view:'thread';id:string};
 const idPattern=/^[a-f0-9]{64}$/;
 export function parseRoute(hash:string):AppRoute {
  const parts=hash.replace(/^#\/?/,'').split('/');
  if((parts[0]==='profile'||parts[0]==='thread')&&idPattern.test(parts[1]||'')&&parts.length===2)return {view:parts[0],id:parts[1]};
- if(['home','explore','notifications','saved'].includes(parts[0])&&parts.length===1)return {view:parts[0] as 'home'};
+ if(['home','explore','notifications','messages','saved'].includes(parts[0])&&parts.length===1)return {view:parts[0] as 'home'};
  return {view:'home'};
 }
 export function routeHash(route:AppRoute){return '#/'+route.view+('id'in route?'/'+route.id:'')}

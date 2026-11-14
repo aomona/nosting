@@ -19,10 +19,11 @@ try {
   const seed = 'wss://seed.example/', outbox = 'wss://outbox.example/', bad = 'wss://bad.example/';
   const list = sign({kind:10002,tags:[['r', outbox, 'write'],['r','wss://read.example/','read'],['r',bad]], created_at:2000});
   const posts = Array.from({length:140}, (_,i) => sign({created_at:800-i, content:`old following ${i}`}));
+  const recoveredPosts = Array.from({length:65}, (_,i) => sign({created_at:600-i, content:`recovered ${i}`}));
   const global = Array.from({length:60}, (_,i) => sign({created_at:5000-i,content:`global ${i}`},other));
   assert(!global.slice(0,45).some(e=>e.pubkey===author));
   let allSockets = [], requests = [], maximum = 0, broken = true, silent = false, delay = 1, rogue = null, silentUrl = null;
-  const db = new Map([[seed,[list,...global]],[outbox,posts],[bad,[]]]);
+  const db = new Map([[seed,[list,...global]],[outbox,posts],[bad,recoveredPosts]]);
   class Socket {
     readyState=0; onopen=null; onmessage=null; onerror=null; onclose=null;
     constructor(url) { this.url=url; allSockets.push(this); maximum=Math.max(maximum,allSockets.filter(s=>s.readyState!==3).length); setTimeout(()=>{if(this.readyState!==3){this.readyState=1;this.onopen?.()}},1); }
@@ -57,10 +58,13 @@ try {
   await feed.loadOlder();await feed.loadOlder();await feed.loadOlder();
   assert(requests.some(r=>r.url===outbox&&r.frame[2]?.until===751),'history cursor comes from following page');
   assert.equal(snapshot.events.length,140);assert.equal(new Set(snapshot.events.map(e=>e.id)).size,140);
+  assert(snapshot.done && snapshot.failed>0,'healthy history reaches its end while the failed relay remains retryable');
   const beforeRetry=requests.filter(r=>r.url===outbox&&r.frame[2]?.until!==undefined).length;
   broken=false;await feed.loadOlder(true);
-  assert.equal(snapshot.failed,0);assert.equal(snapshot.done,true);
+  assert.equal(snapshot.failed,0);assert.equal(snapshot.done,false);
+  assert.equal(snapshot.events.length,190,'retry resumes the failed relay from its untouched cursor');
   assert.equal(requests.filter(r=>r.url===outbox&&r.frame[2]?.until!==undefined).length,beforeRetry,'retry only failed relay');
+  await feed.loadOlder();assert.equal(snapshot.events.length,205);assert.equal(snapshot.done,true);
   const liveSocket=allSockets.findLast(s=>s.url===outbox&&s.readyState===1);
   const live=requests.findLast(r=>r.url===outbox&&r.frame[2]?.since!==undefined).frame;
   const fresh=sign({created_at:6001,content:'live'});liveSocket.deliver(['EVENT',live[1],fresh]);
@@ -97,10 +101,13 @@ try {
     await new Promise(r=>setTimeout(r,100));assert.equal(count,countAtStop);assert(allSockets.every(s=>s.readyState===3));silent=false;
   }
   // Timeouts preserve healthy relay results; a retry resumes its untouched cursor.
-  broken=false;silentUrl=bad;db.set(seed,[list]);db.set(outbox,posts);delay=1;
+  broken=false;silentUrl=bad;db.set(seed,[list]);db.set(outbox,posts);db.set(bad,[]);delay=1;
   const timeoutFeed=createFollowingFeed([author],[seed],s=>snapshot=s,{...options,timeout:500});
   await wait(()=>snapshot.events.length>0);assert(snapshot.loading,'healthy events are emitted before silent relay times out');
-  await wait(()=>!snapshot.initial&&!snapshot.loading);assert(snapshot.failed>0);timeoutFeed.stop();silentUrl=null;
+  await wait(()=>!snapshot.initial&&!snapshot.loading);assert(snapshot.failed>0);
+  await timeoutFeed.loadOlder();await timeoutFeed.loadOlder();await timeoutFeed.loadOlder();
+  assert.equal(snapshot.events.length,140);assert(snapshot.done && snapshot.failed>0);
+  silentUrl=null;await timeoutFeed.loadOlder(true);assert.equal(snapshot.failed,0);assert(snapshot.done);timeoutFeed.stop();
   // Untrusted relay lists are signature checked; replaceable ties use lowest ID.
   const oldList=sign({kind:10002,created_at:1,tags:[['r','wss://old.example/']]});
   rogue={...list,sig:'0'.repeat(128)};db.set(seed,[oldList]);db.set('wss://old.example/',[]);

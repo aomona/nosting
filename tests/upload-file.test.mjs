@@ -24,3 +24,16 @@ const png=new Uint8Array([137,80,78,71,13,10,26,10]);
 assert.equal((await prepareUploadFile(new File([png],'photo.png'))).type,'image/png');
 assert.equal((await prepareUploadFile(new File(['RIFF0000WEBP'],'photo.webp'))).type,'image/webp');
 console.log('PASS upload file: signature MIME, canonical JPEG aliases, unchanged bytes, spoof rejection, 30 MB boundary before read');
+
+// The JPEG MIME-normalization path must keep accepting GIFs without rewriting frames.
+const gif89=new Uint8Array(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==','base64'));
+const gif87=gif89.slice();gif87[4]=55;
+for(const bytes of [gif87,gif89])for(const type of ['', 'application/octet-stream', 'image/gif']){
+ const file=new File([bytes],'animation.gif',{type,lastModified:456});
+ const prepared=await prepareUploadFile(file);
+ assert.equal(prepared.type,'image/gif');assert.equal(prepared.name,file.name);assert.equal(prepared.lastModified,456);
+ assert.deepEqual(new Uint8Array(await prepared.arrayBuffer()),bytes);
+ if(type==='image/gif')assert.equal(prepared,file);
+}
+for(const payload of ['GIF88a','GIF89','<svg/>'])await assert.rejects(()=>prepareUploadFile(new File([payload],'fake.gif',{type:'image/gif'})),/PNG・JPEG・WebP・GIF/);
+console.log('PASS GIF87a/GIF89a file normalization: canonical MIME, byte preservation, invalid signature rejection');

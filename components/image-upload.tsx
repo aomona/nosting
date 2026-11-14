@@ -41,7 +41,7 @@ export default function ImageUpload({pubkey,onUploaded,onLogin,onBusy,onPending,
   }catch(e:any){if(mounted.current)setError(controller.signal.aborted?'中断しました。送信開始後は画像が保存されている場合があります。':(e?.message||'アップロードできませんでした')+(attempted?' 応答が不明な場合、画像が保存されている可能性があります。':''))}
   finally{lock.current=false;abort.current=null;if(mounted.current)setSending(false);busyCallback.current(false)}
  }
- return <div className="petal-upload"><input ref={input} type="file" accept="image/png,image/jpeg,image/webp,.jpg,.jpeg,.jpe" hidden onChange={e=>{select(e.target.files?.[0]);e.target.value=''}}/>
+ return <div className="petal-upload"><input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif,.jpg,.jpeg,.jpe,.gif" hidden onChange={e=>{select(e.target.files?.[0]);e.target.value=''}}/>
 
   {file&&<div className="petal-upload-preview"><img src={preview||undefined} alt="アップロード前のプレビュー"/><div className="petal-upload-details"><p>画像は公開され、投稿を取り消しても残ります。</p><div className="petal-upload-actions"><M3eButton variant="filled" disabled={sending||disabled} onClick={upload}>{sending?'アップロード中…':'アップロード'}</M3eButton><M3eButton variant="text" onClick={()=>{if(sending)abort.current?.abort();else{selection.current++;setFile(null);setError('')}}}>{sending?'中断':'取り消す'}</M3eButton></div></div></div>}
   {error&&<p role="alert" className="petal-upload-error">{error}</p>}

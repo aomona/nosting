@@ -3,6 +3,75 @@ export const MAX_UPLOAD=30_000_000;
 export class UploadError extends Error {constructor(public status:number,message:string){super(message)}}
 export async function sha256(bytes:Uint8Array){const hash=await crypto.subtle.digest('SHA-256',bytes as Uint8Array<ArrayBuffer>);return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')}
 function dimensions(width:number,height:number){return width>0&&height>0&&width<=16384&&height<=16384&&width*height<=64000000}
+// Validate the complete GIF stream without rendering or rewriting its frames.
+// Bound both animation compositing work and LZW expansion, not just file size.
+function validGif(bytes:Uint8Array):boolean{
+ if(bytes.length<14||!['GIF87a','GIF89a'].includes(String.fromCharCode(...bytes.subarray(0,6))))return false;
+ const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+ const width=view.getUint16(6,true),height=view.getUint16(8,true);
+ if(!dimensions(width,height))return false;
+ const globalColors=bytes[10]&128?1<<((bytes[10]&7)+1):0;
+ let p=13+globalColors*3,frames=0,transparent=-1,control=false;
+ if(p>bytes.length||globalColors&&bytes[11]>=globalColors)return false;
+ const skipBlocks=()=>{while(p<bytes.length){const size=bytes[p++];if(!size)return true;p+=size;if(p>bytes.length)return false}return false};
+ // Dictionary entries only need length and palette bounds; no pixel buffer is allocated.
+ const lengths=new Uint16Array(4096),first=new Uint16Array(4096),largest=new Uint16Array(4096);
+ while(p<bytes.length){
+  const marker=bytes[p++];
+  if(marker===0x3b)return frames>0&&!control&&p===bytes.length;
+  if(marker===0x21){
+   const label=bytes[p++];
+   if(label===0xf9){
+    if(control||p+6>bytes.length||bytes[p]!==4||bytes[p+5]!==0)return false;
+    const packed=bytes[p+1];if(packed&0xe0||((packed>>2)&7)>3)return false;
+    transparent=packed&1?bytes[p+4]:-1;control=true;p+=6;
+   }else if(label===0xff){
+    if(p+12>bytes.length||bytes[p]!==11)return false;p+=12;if(!skipBlocks())return false;
+   }else if(label===0xfe){if(!skipBlocks())return false}
+   else return false; // Plain-text rendering and unknown extensions are not image uploads.
+   continue;
+  }
+  if(marker!==0x2c||p+9>bytes.length)return false;
+  const left=view.getUint16(p,true),top=view.getUint16(p+2,true),w=view.getUint16(p+4,true),h=view.getUint16(p+6,true),packed=bytes[p+8];p+=9;
+  if(!dimensions(w,h)||left+w>width||top+h>height||packed&0x18)return false;
+  if(++frames>1000||width*height*frames>64000000)return false;
+  const colors=packed&128?1<<((packed&7)+1):globalColors;
+  if(packed&128)p+=colors*3;
+  if(!colors||transparent>=colors||p>=bytes.length)return false;
+  transparent=-1;control=false;
+  const minimum=bytes[p++];if(minimum<2||minimum>8)return false;
+  const clear=1<<minimum,end=clear+1;
+  for(let i=0;i<clear;i++){lengths[i]=1;first[i]=largest[i]=i}
+  let next=end+1,codeSize=minimum+1,previous=-1,pixels=0,bits=0,bitCount=0,remaining=0,terminated=false,started=false,ended=false;
+  const readByte=()=>{
+   if(terminated)return -1;
+   if(!remaining){if(p>=bytes.length)return -1;remaining=bytes[p++];if(!remaining){terminated=true;return -1}if(p+remaining>bytes.length)return -1}
+   remaining--;return bytes[p++];
+  };
+  for(;;){
+   while(bitCount<codeSize){const byte=readByte();if(byte<0)return false;bits|=byte<<bitCount;bitCount+=8}
+   const code=bits&((1<<codeSize)-1);bits>>>=codeSize;bitCount-=codeSize;
+   if(!started&&code!==clear)return false;started=true;
+   if(code===clear){next=end+1;codeSize=minimum+1;previous=-1;continue}
+   if(code===end){ended=pixels===w*h;break}
+   if(code>next||code===next&&previous<0)return false;
+   const special=code===next;
+   const count=special?lengths[previous]+1:lengths[code];
+   const head=special?first[previous]:first[code];
+   const max=special?largest[previous]:largest[code];
+   if(max>=colors||(pixels+=count)>w*h)return false;
+   if(previous>=0&&next<4096){
+    lengths[next]=lengths[previous]+1;first[next]=first[previous];largest[next]=Math.max(largest[previous],head);next++;
+    if(next===(1<<codeSize)&&codeSize<12)codeSize++;
+   }
+   previous=code;
+  }
+  if(!ended)return false;
+  // Consume the rest of the data sub-blocks, including their required terminator.
+  p+=remaining;if(!skipBlocks())return false;
+ }
+ return false;
+}
 // Walk marker boundaries through every scan, not EXIF payloads or only the last
 // two bytes. This is bounded structural validation, not a pixel/entropy decoder.
 function jpegStatus(bytes:Uint8Array):'valid'|'invalid'|'dimensions'{
@@ -63,9 +132,10 @@ export function imageMime(bytes:Uint8Array):string|null{
   if(type==='VP8 '&&bytes.length>=30&&bytes[23]===157&&bytes[24]===1&&bytes[25]===42){width=view.getUint16(26,true)&16383;height=view.getUint16(28,true)&16383}
   if(dimensions(width,height))return 'image/webp';
  }
+ if(validGif(bytes))return 'image/gif';
  return null;
 }
-const EXTENSIONS:Record<string,string>={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'};
+const EXTENSIONS:Record<string,string>={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'};
 export function checkAuth(request:Request,now=Math.floor(Date.now()/1000)):Event{
  if(request.method!=='POST')throw new UploadError(405,'POSTのみ対応しています');
  const header=request.headers.get('Authorization');if(!header?.startsWith('Nostr ')||header.length>16384)throw new UploadError(401,'NIP-98署名が必要です');
@@ -77,7 +147,7 @@ export function checkAuth(request:Request,now=Math.floor(Date.now()/1000)):Event
  return event;
 }
 export async function readImage(request:Request){
- const mime=request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();if(!['image/png','image/jpeg','image/webp'].includes(mime||''))throw new UploadError(415,'PNG・JPEG・WebPのみアップロードできます');
+ const mime=request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();if(!['image/png','image/jpeg','image/webp','image/gif'].includes(mime||''))throw new UploadError(415,'PNG・JPEG・WebP・GIFのみアップロードできます');
  const encoding=request.headers.get('Content-Encoding');if(encoding&&encoding!=='identity')throw new UploadError(415,'圧縮されたリクエストには対応していません');
  const length=request.headers.get('Content-Length');if(length!==null&&(!/^\d+$/.test(length)||!Number.isSafeInteger(Number(length))))throw new UploadError(400,'画像サイズが不正です');if(length!==null&&Number(length)>MAX_UPLOAD)throw new UploadError(413,'画像は30 MB以内にしてください');
  if(!request.body)throw new UploadError(400,'画像がありません');
@@ -121,6 +191,6 @@ export async function handleUpload(request:Request,env:UploadBindings){
  }catch(error){return json({error:error instanceof UploadError?error.message:'画像の保存結果を確認できません。画像が保存されている可能性があります'},error instanceof UploadError?error.status:503)}
 }
 export async function handleMedia(request:Request,key:string,env:UploadBindings){
- if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.(png|jpg|webp)$/.test(key))return new Response(null,{status:404});
+ if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.(png|jpg|webp|gif)$/.test(key))return new Response(null,{status:404});
  try{if(!env.DB||!env.BUCKET)return new Response(null,{status:503});const row=await env.DB.prepare("SELECT mime,size FROM media_uploads WHERE object_key=? AND state='stored'").bind('media/'+key).first<{mime:string;size:number}>();if(!row||!EXTENSIONS[row.mime]||!key.endsWith('.'+EXTENSIONS[row.mime]))return new Response(null,{status:404});const object=await env.BUCKET.get('media/'+key);if(!object)return new Response(null,{status:404});return new Response(request.method==='HEAD'?null:object.body,{headers:{'Content-Type':row.mime,'Content-Length':String(row.size),'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Cache-Control':'public, max-age=31536000, immutable','Content-Disposition':'inline','ETag':object.httpEtag,'Referrer-Policy':'no-referrer'}})}catch{return new Response(null,{status:503})}
 }

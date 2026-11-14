@@ -21,12 +21,12 @@ with sync_playwright() as p:
         source.wait_for()
         def open_quote():
             source.locator('m3e-icon-button[aria-label="リポスト"]').click()
-            page.locator('m3e-button').filter(has_text='引用する').click()
+            page.get_by_role('menuitem',name='引用する').click()
             page.get_by_role('textbox',name='引用の本文').wait_for()
         # Dismissing while login is pending must not reopen a composer later.
         page.evaluate('qa.loginHold=true')
         source.locator('m3e-icon-button[aria-label="リポスト"]').click()
-        page.locator('m3e-button').filter(has_text='引用する').click()
+        page.get_by_role('menuitem',name='引用する').click()
         page.wait_for_function('typeof qa.loginRelease===\'function\'')
         page.keyboard.press('Escape')
         page.evaluate('qa.loginRelease()')

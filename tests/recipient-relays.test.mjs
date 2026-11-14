@@ -142,8 +142,17 @@ const count=notices.length;harness.relayAccountAbort.current.abort();release();a
 harness.relayAccountAbort.current=new AbortController();
 const replyCancel=new AbortController();
 reset({[a]:{events:[own,recipient]},'wss://yabu.me/':{}});
-const cancelledReply=harness.publish(1,'reply',[['p',other]],replyCancel.signal);
+const cancelledReply=harness.publish(1,'reply',[['p',other]],undefined,replyCancel.signal);
 await new Promise(resolve=>setImmediate(resolve));replyCancel.abort();release();assert.equal(await cancelledReply,false);assert(instances.every(s=>s.frames.every(f=>f[0]!=='EVENT')));
+// Preserve merged main's unchanged-quote retry identity through recipient routing.
+let retrySignatures=0;
+harness.window.nostr.signEvent=async event=>{retrySignatures++;return nostr.finalizeEvent(plain(event),sk);};
+const retry={current:null};
+reset({[a]:{events:[own,recipient],note:false,metadata:true},[b]:{note:false,metadata:true},'wss://yabu.me/':{}});
+assert.equal(await harness.publish(1,'quote',[['p',other]],retry),false);assert(retry.current);const retryId=retry.current.id;
+reset({[a]:{events:[own,recipient],note:true,metadata:true},[b]:{note:true,metadata:true},'wss://yabu.me/':{}});
+assert.equal(await harness.publish(1,'quote',[['p',other]],retry),true);assert.equal(retrySignatures,1);assert.equal(retry.current,null);
+assert(instances.flatMap(s=>s.frames).filter(f=>f[0]==='EVENT'&&f[1].kind===1).every(f=>f[1].id===retryId));
 console.log('PASS App publication: content mention p-tags, offline own connection, routing, accepted-only note insertion, cancellation, unchanged account settings');
 
 // Actual reply component forwards an abort signal and cancels on unmount.

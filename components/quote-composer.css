@@ -1,0 +1,13 @@
+m3e-dialog.quote-dialog{--m3e-dialog-min-width:min(528px,calc(100vw - 32px));--m3e-dialog-max-width:528px}
+.quote-composer{display:flex;flex-direction:column;gap:16px;width:100%;min-width:0}
+.quote-composer-field{width:100%;min-width:0}
+.quote-composer textarea{width:100%;min-width:0;box-sizing:border-box;resize:vertical;min-height:112px;max-height:32dvh;font:inherit;line-height:1.6}
+.quote-composer textarea:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:4px}
+m3e-card.quote-composer-source{display:block;min-width:0;max-width:100%;--m3e-card-shape:var(--md-sys-shape-corner-large,16px)}
+.quote-composer-source-inner{flex:0 0 auto;width:100%;box-sizing:border-box;padding:16px;min-width:0;max-height:30dvh;overflow:auto;overflow-wrap:anywhere}
+.quote-composer-author{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;color:var(--muted)}
+.quote-composer-author svg{flex-shrink:0}
+.quote-composer-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap}
+.quote-composer-error{margin:0;color:var(--md-sys-color-error);font-size:14px}
+.repost-options{display:flex;flex-direction:column;gap:12px}
+@media(max-width:450px){.quote-composer-source-inner{padding:12px}.quote-composer{gap:12px}}

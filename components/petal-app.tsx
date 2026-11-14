@@ -52,6 +52,8 @@ import {shareNote} from '../lib/share-note';
 import ZapPanel from './deferred-zap';
 import {findRepostSource,repostPayload} from '../lib/repost';
 import {buildContentTags} from '../lib/publication-tags';
+import {quotePost} from '../lib/quote-post';
+import QuoteComposer from './quote-composer';
 import {isLatestReplaceable} from '../lib/latest-event';
 import {M3eActionList,M3eListAction} from '@m3e/react/list';
 import {M3eDialog} from '@m3e/react/dialog';
@@ -118,6 +120,7 @@ export default function App(){
  const [paging,setPaging]=useState<{loading:boolean;error:string;done:boolean;warning?:string}>({loading:false,error:'',done:false});const sentinel=useRef<HTMLDivElement>(null),screen=useRef('');screen.current=view==='profile'?'profile:'+profileKey:view;
  const latestContacts=useRef<NostrEvent|null>(null);
  const reposting=useRef(false);
+ const quoteRequest=useRef(0),quoteRetry=useRef<NostrEvent|null>(null);
  const loginSession=useRef(new LoginSession()),[loggingIn,setLoggingIn]=useState(false);
  const activeUser=useRef(''),selectedAuthor=useRef(''),profileSnapshots=useRef(new ProfileSnapshots((ws,frame)=>sendRelay(ws as WebSocket,frame))),profileOverflow=useRef(false);
  const publicationPending=useRef(false);
@@ -248,8 +251,8 @@ export default function App(){
  async function loadOlder(){const isProfile=view==='profile';if((isProfile?profileLoading:initialFeed.current.loading)||view!=='home'&&!isProfile||paging.loading||paging.done||(isProfile?authorNotes:notes).length>=FEED_LIMIT)return;const key=screen.current,run=generation.current;const pager=isProfile?authorPager.current:homePager.current;if(pager.busy)return;const target=isProfile?profileKey:undefined;const readUrls=activeRelays.current.filter(r=>r.read).map(r=>r.url);if(!readUrls.length){setPaging({loading:false,error:'読み取りリレーに接続できていません',done:false});return;}setPaging({loading:true,error:'',done:false});try{const result=await pager.page(sockets.current,readUrls,target);if(!result||result.cancelled||run!==generation.current)return;if(isProfile){if(selectedAuthor.current===target)setAuthorNotes(n=>retainFeed(n,result.events))}else setNotes(n=>retainFeed(n,result.events));requestProfiles(result.events);if(screen.current===key)setPaging({loading:false,error:result.error,done:result.done,warning:result.warning})}catch{if(screen.current===key)setPaging({loading:false,error:'取得できませんでした。再試行してください',done:false})}}
  useEffect(()=>{setPaging({loading:false,error:'',done:false})},[view,profileKey]);
  useEffect(()=>{if(view==='home'&&initialLoading||view==='profile'&&localMutes.mutes.users.includes(profileKey)||(view==='profile'?authorNotes:notes).length>=FEED_LIMIT||!sockets.current.some(s=>s.readyState===1&&canRead(activeRelays.current,s.url))||profileLoading&&view==='profile'||!sentinel.current||paging.loading||paging.done||paging.error||q||view==='saved'||view==='explore'||view==='home'&&tab!=='すべて')return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting))void loadOlder()},{rootMargin:'240px'});observer.observe(sentinel.current);return()=>observer.disconnect()},[view,profileKey,tab,q,paging,notes.length,authorNotes.length,statuses,profileLoading,initialLoading,localMutes.mutes.users]);
- function applyLogin(result:LoginResult,automatic=false){const k=result.key;
-  if(activeUser.current!==k){latestContacts.current=null;setFollows([]);activeUser.current=k;switchRelayAccount(k)}activeUser.current=k;setPubkey(k);if(!automatic||result.destination)setModal('');
+ function applyLogin(result:LoginResult,automatic=false,keepModal=false){const k=result.key;
+  if(activeUser.current!==k){latestContacts.current=null;setFollows([]);activeUser.current=k;switchRelayAccount(k)}activeUser.current=k;setPubkey(k);if((!automatic||result.destination)&&!keepModal)setModal('');
   if(!automatic)try{rememberLogin(window.localStorage,true)}catch{}
   sockets.current.filter(s=>s.readyState===1&&canRead(activeRelays.current,s.url)).forEach(s=>sendRelay(s,JSON.stringify(['REQ','contacts',{kinds:[3],authors:[k],limit:1}])));
   if(result.destination==='profile')openProfile(k);else if(result.destination==='notifications')navigate('notifications');
@@ -259,7 +262,7 @@ export default function App(){
   const session=loginSession.current;setLoggingIn(true);void restoreLogin(session,storage,extension).then(result=>{if(alive&&result)restoredLogin.current(result)}).finally(()=>{if(alive)setLoggingIn(session.pending)});
   return()=>{alive=false;session.cancel()};
  },[]);
- async function login(destination?:LoginDestination){
+ async function login(destination?:LoginDestination,keepModal=false){
   const session=loginSession.current;
   if(destination)session.setDestination(destination);
   if(session.pending)return;
@@ -267,34 +270,40 @@ export default function App(){
   const extension=(window as any).nostr;
   if(typeof extension?.getPublicKey!=='function'){setModal('login');return}
   setLoggingIn(true);
-  try{const result=await session.login(()=>extension.getPublicKey(),destination);if(!result)return;applyLogin(result);
+  try{const result=await session.login(()=>extension.getPublicKey(),destination);if(!result)return;applyLogin(result,false,keepModal);
   }catch{notify('ログインがキャンセルされたか、接続できませんでした')}finally{setLoggingIn(session.pending)}
  }
  function goTo(next:string){if(next==='profile'){if(activeUser.current)openProfile(activeUser.current);else void login('profile')}else if(next==='notifications'&&!activeUser.current)void login('notifications');else navigate(next)}
 
- async function publish(kind:number,content:string,tags:string[][],cancel?:AbortSignal){
+ async function publish(kind:number,content:string,tags:string[][],retry?:RefObject<NostrEvent|null>,cancel?:AbortSignal){
   if(!pubkey){await login();return false}
   if(publicationPending.current)return false;
   const owner=pubkey,signal=cancel?AbortSignal.any([cancel,relayAccountAbort.current.signal]):relayAccountAbort.current.signal;
-  const unsigned={kind,content,tags:kind===1?buildContentTags(content,tags):tags,created_at:Math.floor(Date.now()/1000)};
+  const publicationTags=kind===1?buildContentTags(content,tags):tags;
+  // Preserve main's quote retry identity while refreshing recipient destinations.
+  const previous=retry?.current;
+  const cached=previous&&previous.pubkey===owner&&previous.kind===kind&&previous.content===content&&JSON.stringify(previous.tags)===JSON.stringify(publicationTags)?previous:null;
+  const unsigned={kind,content,tags:publicationTags,created_at:cached?.created_at??Math.floor(Date.now()/1000)};
   const routed=kind===1&&mentionedRecipients(unsigned.tags,owner).length>0;
   if(!routed&&!sockets.current.some(s=>s.readyState===1&&canWrite(activeRelays.current,s.url))){notify('書き込み用のリレーに接続できていません');return false}
   publicationPending.current=true;setBusy(true);
   try{
-   const sign=(event:EventTemplate)=>{const extension=(window as Window&{nostr?:{signEvent:(event:EventTemplate)=>Promise<NostrEvent>}}).nostr;if(!extension)throw Error('署名拡張機能に接続してください');return extension.signEvent(event)};
+   const sign=(event:EventTemplate)=>{if(cached)return Promise.resolve(cached);const extension=(window as Window&{nostr?:{signEvent:(event:EventTemplate)=>Promise<NostrEvent>}}).nostr;if(!extension)throw Error('署名拡張機能に接続してください');return extension.signEvent(event)};
    if(routed){
-    const result=await publishRecipientNote({owner,unsigned,ownList:accountRelays.current?.state.owner===owner?accountRelays.current.state.event:null,writeUrls:activeRelays.current.filter(r=>r.write).map(r=>r.url),lookupUrls:relayLookupUrls(null,activeRelays.current.filter(r=>r.read).map(r=>r.url)),signal,currentOwner:()=>activeUser.current,sign});
+    const result=await publishRecipientNote({owner,unsigned,ownList:accountRelays.current?.state.owner===owner?accountRelays.current.state.event:null,writeUrls:activeRelays.current.filter(r=>r.write).map(r=>r.url),lookupUrls:relayLookupUrls(null,activeRelays.current.filter(r=>r.read).map(r=>r.url)),signal,currentOwner:()=>activeUser.current,sign,onSigned:event=>{if(retry)retry.current=event}});
     const accepted=result.receipts.some(r=>r.note);
-    if(accepted)setNotes(n=>retainFeed([result.event],n));
+    if(accepted){if(retry)retry.current=null;setNotes(n=>retainFeed([result.event],n))}
     notify(recipientPublicationMessage(result));return accepted;
    }
    const expected=JSON.stringify(unsigned),ev=await sign(unsigned);
    if(ev.pubkey!==owner||JSON.stringify({kind:ev.kind,content:ev.content,tags:ev.tags,created_at:ev.created_at})!==expected||!verifyEvent(ev))throw Error('署名を確認できませんでした');
    if(signal.aborted||activeUser.current!==owner)throw Error('ログイン状態が変わりました');
+   if(retry)retry.current=ev;
    const targets=sockets.current.filter(s=>s.readyState===1&&canWrite(activeRelays.current,s.url));
    const result=await publisher.current.publish(targets,ev);
    if(signal.aborted||activeUser.current!==owner)return false;
    if(!result.accepted){notify('受信確認が取れません。再投稿前にタイムラインを確認してください');return false}
+   if(retry)retry.current=null;
    if(kind===1)setNotes(n=>retainFeed([ev],n));
    notify(result.unconfirmed?`${result.confirmed}/${result.total}リレーで投稿を確認。残りは未確認です`:'リレーが投稿を受け付けました');return true;
   }catch(e){if(!signal.aborted&&activeUser.current===owner)notify(e instanceof Error?e.message:'署名または送信がキャンセルされました');return false}finally{publicationPending.current=false;setBusy(false)}
@@ -319,7 +328,7 @@ export default function App(){
   zap:n=>{if(!pubkey){void login();return}setZapNote(n)},
   share:n=>{void shareNote(n,{share:navigator.share?.bind(navigator),canShare:navigator.canShare?.bind(navigator),copy:text=>navigator.clipboard.writeText(text)}).then(result=>{if(result==='copied')notify('Nostrリンクをコピーしました')}).catch(()=>notify('シェアできませんでした'))},
   cancelReply:(n,rowId=n.id)=>{setOpenReplies(ids=>ids.filter(id=>id!==rowId));requestAnimationFrame(()=>document.querySelector<HTMLElement>(`[data-reply-for="${rowId}"]`)?.focus())},
-  send:async(n,text,signal)=>{try{return await publish(1,text,makeReplyTags(n),signal)}catch(error){notify(error instanceof Error?error.message:'返信先を確認できません');return false}}
+  send:async(n,text,signal)=>{try{return await publish(1,text,makeReplyTags(n),undefined,signal)}catch(error){notify(error instanceof Error?error.message:'返信先を確認できません');return false}}
  }});
 
  const openQuote=useMemo(()=>(n:NostrEvent)=>noteActions.current.openDetail(n),[]);
@@ -355,6 +364,6 @@ export default function App(){
  <M3eNavBar className="mobile-nav">{nav.map(({id,icon:Icon,label})=><M3eNavItem key={id} selected={view===id&&!modal} onClick={()=>{goTo(id)}} aria-label={label}><Icon slot="icon" size={24}/>{label}</M3eNavItem>)}</M3eNavBar>
  {zapNote&&<M3eDialog open dismissible closeLabel="閉じる" onClosed={()=>setZapNote(null)} aria-label="Zap"><X slot="close-icon"/><h2 slot="header">Zap</h2><ZapPanel event={{id:zapNote.id,pubkey:zapNote.pubkey,tags:zapNote.tags||[]}} profile={profiles[zapNote.pubkey]||{}} pubkey={pubkey} readRelays={zapReadRelays} signEvent={async unsigned=>{if(activeUser.current!==pubkey)throw Error('ログイン状態が変わりました');const event=await (window as any).nostr.signEvent(unsigned);if(activeUser.current!==pubkey)throw Error('ログイン状態が変わりました');return event}}/></M3eDialog>}
  {toast&&<div className="toast" role="status"><Check size={18}/>{toast}</div>}
- <M3eDialog open={!!modal} dismissible closeLabel="閉じる" onClosing={()=>{if(modal==='relays')setModal('')}} onClosed={()=>{if(displayModal==='login')loginSession.current.cancelDestination();setModal('')}} aria-label="設定と接続"><X slot="close-icon"/>{displayModal==='profile-edit'?<><h2 slot="header">プロフィールを編集</h2>{modal==='profile-edit'&&pubkey&&<ProfileEditor key={pubkey} load={loadOwnProfile} save={saveOwnProfile} onSaved={()=>{notify('プロフィールを保存しました');setModal('')}}/>}</>:displayModal==='login'?<><h2 slot="header">ログイン</h2><p>Nostr署名拡張機能（NIP-07）が見つかりません。対応ブラウザで開いてください。</p><M3eButton variant="filled" className="primary-action" disabled={loggingIn} onClick={()=>void login()}>もう一度確認</M3eButton></>:(displayModal==='relays'||displayModal==='author-relays')?<><div slot="header" className="relay-dialog-header"><h2>{displayModal==='author-relays'?'この人のリレー':'リレー'}</h2>{displayModal==='author-relays'&&<M3eIconButton aria-label={relayDiscovering?'リレーを取得中':'リレーを再取得'} disabled={busy||relayDiscovering} onClick={()=>relayEditor.current?.reload()}><RefreshCw aria-hidden="true"/></M3eIconButton>}</div>{modal===displayModal&&(displayModal==='relays'&&pubkey?<AccountRelayEditor key={pubkey} load={loadOwnRelays} save={saveOwnRelays}/>:<RelayEditor ref={relayEditor} onDiscoveringChange={setRelayDiscovering} key={displayModal+':'+(displayModal==='author-relays'?profileKey:pubkey)+':'+JSON.stringify(relays)} discoveryLabel={displayModal==='author-relays'?'この人':'自分'} discoveryPurpose={displayModal==='author-relays'?'author':'self'} onDiscover={displayModal==='author-relays'&&profileKey?signal=>relayDiscovery.current.start(sockets.current,activeRelays.current.filter(r=>r.read).map(r=>r.url),profileKey,signal):undefined} value={relays} statuses={statuses} busy={busy} onReconnect={url=>{connection.current?.restart(url)}} onSave={saveLocalRelays} onRead={pubkey&&displayModal==='author-relays'?readAuthorRelay:undefined}/>)}</>:displayModal==='settings'?<><h2 slot="header">設定</h2><M3eActionList><M3eListAction onClick={()=>setDark(!dark)}>{dark?<Moon slot="leading"/>:<Sun slot="leading"/>}<span>{dark?'ダークモード':'ライトモード'}</span></M3eListAction><M3eListAction onClick={()=>setModal('relays')}><Radio slot="leading"/><span>リレー接続</span><ArrowUpRight slot="trailing" aria-hidden="true"/></M3eListAction><M3eListAction onClick={()=>pubkey?openProfile(pubkey):void login()}><Link slot="leading"/><span>{pubkey?short(pubkey):'署名拡張機能に接続'}</span></M3eListAction><M3eListAction onClick={()=>setModal('about')}>nost.ingについて</M3eListAction>{(pubkey||loggingIn)&&<M3eListAction onClick={()=>{try{rememberLogin(window.localStorage,false)}catch{}loginSession.current.logout();setLoggingIn(false);activeUser.current='';switchRelayAccount('');setPubkey('');setFollows([]);notify('接続情報を解除しました')}}><LogOut slot="leading"/>{pubkey?'ログアウト':'接続を中止'}</M3eListAction>}</M3eActionList><section className="performance-settings"><label><input type="checkbox" checked={lightweight} onChange={e=>setLightweight(e.target.checked)}/>軽量表示（試験・このタブのみ）</label><p>ホームとプロフィールで画面外の投稿を省略します。ページ内検索や読み上げを使う場合はオフにしてください。Tab操作・画面幅の変更時には通常表示へ戻ります。</p></section><MuteSettings key={pubkey||'guest'} {...localMutes}/></>:displayModal==='repost'?<><h2 slot="header">このノートをリポスト？</h2><p>公開リレーに送信されます。削除しても他のリレーや端末に残る場合があります。</p><M3eButton variant="filled" className="primary-action" disabled={busy} onClick={confirmRepost}>署名してリポスト</M3eButton></>:<><h2 slot="header">nost.ingについて</h2><p>公開リレーに接続するNostrクライアントです。</p><p>UI：M3E（matraic、MITライセンス）のWeb Components。Google公式製ではありません。</p><p>対応：公開ノート、返信、リアクション、リポスト、ローカルブックマーク、NIP-07署名。画像・動画表示に対応。DM・リモート署名は未対応です。通知は設定したメンション受信先から取得します。</p><p>公開投稿は取り消せない場合があります。ブックマーク・テーマ・下書き・ミュートをこのブラウザに保存します。下書き・ミュートはアカウント別です。リレーの接続設定は未ログイン時のみこのブラウザに保存します。プロフィール画像・投稿画像は配信元から読み込み、動画は操作後に読み込みます。配信元にはIPアドレスが伝わります。</p></>}</M3eDialog>
+ <M3eDialog className={displayModal==='quote'?'quote-dialog':undefined} open={!!modal} dismissible={!(modal==='quote'&&busy)} disableClose={modal==='quote'&&busy} closeLabel="閉じる" onClosing={event=>{if(modal==='quote'&&busy){event.preventDefault();return}quoteRequest.current++;if(modal==='relays')setModal('')}} onClosed={()=>{if(displayModal==='login')loginSession.current.cancelDestination();setModal('')}} aria-label={displayModal==='quote'?'引用投稿':'設定と接続'}><X slot="close-icon"/>{displayModal==='profile-edit'?<><h2 slot="header">プロフィールを編集</h2>{modal==='profile-edit'&&pubkey&&<ProfileEditor key={pubkey} load={loadOwnProfile} save={saveOwnProfile} onSaved={()=>{notify('プロフィールを保存しました');setModal('')}}/>}</>:displayModal==='login'?<><h2 slot="header">ログイン</h2><p>Nostr署名拡張機能（NIP-07）が見つかりません。対応ブラウザで開いてください。</p><M3eButton variant="filled" className="primary-action" disabled={loggingIn} onClick={()=>void login()}>もう一度確認</M3eButton></>:(displayModal==='relays'||displayModal==='author-relays')?<><div slot="header" className="relay-dialog-header"><h2>{displayModal==='author-relays'?'この人のリレー':'リレー'}</h2>{displayModal==='author-relays'&&<M3eIconButton aria-label={relayDiscovering?'リレーを取得中':'リレーを再取得'} disabled={busy||relayDiscovering} onClick={()=>relayEditor.current?.reload()}><RefreshCw aria-hidden="true"/></M3eIconButton>}</div>{modal===displayModal&&(displayModal==='relays'&&pubkey?<AccountRelayEditor key={pubkey} load={loadOwnRelays} save={saveOwnRelays}/>:<RelayEditor ref={relayEditor} onDiscoveringChange={setRelayDiscovering} key={displayModal+':'+(displayModal==='author-relays'?profileKey:pubkey)+':'+JSON.stringify(relays)} discoveryLabel={displayModal==='author-relays'?'この人':'自分'} discoveryPurpose={displayModal==='author-relays'?'author':'self'} onDiscover={displayModal==='author-relays'&&profileKey?signal=>relayDiscovery.current.start(sockets.current,activeRelays.current.filter(r=>r.read).map(r=>r.url),profileKey,signal):undefined} value={relays} statuses={statuses} busy={busy} onReconnect={url=>{connection.current?.restart(url)}} onSave={saveLocalRelays} onRead={pubkey&&displayModal==='author-relays'?readAuthorRelay:undefined}/>)}</>:displayModal==='settings'?<><h2 slot="header">設定</h2><M3eActionList><M3eListAction onClick={()=>setDark(!dark)}>{dark?<Moon slot="leading"/>:<Sun slot="leading"/>}<span>{dark?'ダークモード':'ライトモード'}</span></M3eListAction><M3eListAction onClick={()=>setModal('relays')}><Radio slot="leading"/><span>リレー接続</span><ArrowUpRight slot="trailing" aria-hidden="true"/></M3eListAction><M3eListAction onClick={()=>pubkey?openProfile(pubkey):void login()}><Link slot="leading"/><span>{pubkey?short(pubkey):'署名拡張機能に接続'}</span></M3eListAction><M3eListAction onClick={()=>setModal('about')}>nost.ingについて</M3eListAction>{(pubkey||loggingIn)&&<M3eListAction onClick={()=>{try{rememberLogin(window.localStorage,false)}catch{}loginSession.current.logout();setLoggingIn(false);activeUser.current='';switchRelayAccount('');setPubkey('');setFollows([]);notify('接続情報を解除しました')}}><LogOut slot="leading"/>{pubkey?'ログアウト':'接続を中止'}</M3eListAction>}</M3eActionList><section className="performance-settings"><label><input type="checkbox" checked={lightweight} onChange={e=>setLightweight(e.target.checked)}/>軽量表示（試験・このタブのみ）</label><p>ホームとプロフィールで画面外の投稿を省略します。ページ内検索や読み上げを使う場合はオフにしてください。Tab操作・画面幅の変更時には通常表示へ戻ります。</p></section><MuteSettings key={pubkey||'guest'} {...localMutes}/></>:displayModal==='quote'?<><h2 slot="header">引用</h2>{reply&&<QuoteComposer key={pubkey+':'+reply.id} source={reply} name={profiles[reply.pubkey]?.display_name||profiles[reply.pubkey]?.name||short(reply.pubkey)} busy={busy} onClose={()=>setModal('')} onSend={async text=>{const event=quotePost(reply,text);return publish(event.kind,event.content,event.tags,quoteRetry)}}/>}</>:displayModal==='repost'?<><h2 slot="header">このノートをリポスト？</h2><p>公開リレーに送信されます。削除しても他のリレーや端末に残る場合があります。</p><div className="repost-options"><M3eButton variant="filled" disabled={busy} onClick={confirmRepost}>署名してリポスト</M3eButton><M3eButton variant="tonal" disabled={busy||loggingIn} onClick={async()=>{const request=++quoteRequest.current;if(!activeUser.current)await login(undefined,true);if(request===quoteRequest.current&&activeUser.current)setModal('quote')}}>引用する</M3eButton></div></>:<><h2 slot="header">nost.ingについて</h2><p>公開リレーに接続するNostrクライアントです。</p><p>UI：M3E（matraic、MITライセンス）のWeb Components。Google公式製ではありません。</p><p>対応：公開ノート、返信、リアクション、リポスト、ローカルブックマーク、NIP-07署名。画像・動画表示に対応。DM・リモート署名は未対応です。通知は設定したメンション受信先から取得します。</p><p>公開投稿は取り消せない場合があります。ブックマーク・テーマ・下書き・ミュートをこのブラウザに保存します。下書き・ミュートはアカウント別です。リレーの接続設定は未ログイン時のみこのブラウザに保存します。プロフィール画像・投稿画像は配信元から読み込み、動画は操作後に読み込みます。配信元にはIPアドレスが伝わります。</p></>}</M3eDialog>
  </div></M3eTheme></QuoteOpenContext.Provider></QuoteContext.Provider></MentionContext.Provider></DraftOwnerContext.Provider></MuteContext.Provider>
 }

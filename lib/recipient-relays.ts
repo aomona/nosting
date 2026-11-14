@@ -135,7 +135,7 @@ export async function deliverRecipientNote(note: Event, metadata: Event | null, 
 export type RecipientPublication = RecipientPlan & {event: Event; receipts: DeliveryReceipt[]; discoveryPartial: boolean; metadataMissing: boolean};
 export async function publishRecipientNote(args: {
   owner: string; unsigned: EventTemplate; ownList: Event | null; writeUrls: string[]; lookupUrls: string[];
-  signal: AbortSignal; currentOwner: () => string; sign: (event: EventTemplate) => Promise<Event>; timeout?: number;
+  signal: AbortSignal; currentOwner: () => string; sign: (event: EventTemplate) => Promise<Event>; onSigned?: (event: Event) => void; timeout?: number;
 }): Promise<RecipientPublication> {
   const check = () => {if (args.signal.aborted) throw Error('送信を中止しました'); if (args.currentOwner() !== args.owner) throw Error('ログイン状態が変わりました');};
   check();
@@ -155,6 +155,7 @@ export async function publishRecipientNote(args: {
   const event = copyEvent(returned);
   if (event.pubkey !== args.owner || JSON.stringify({kind: event.kind, content: event.content, tags: event.tags, created_at: event.created_at}) !==
       expected || !verifyEvent(event)) throw Error('署名を確認できませんでした');
+  args.onSigned?.(copyEvent(event));
   const receipts = await deliverRecipientNote(event, ownList, plan.targets, args.signal, args.timeout);
   check();
   return {...plan, event, receipts, discoveryPartial: discovery.partial, metadataMissing: !ownList};

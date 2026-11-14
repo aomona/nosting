@@ -1,0 +1,41 @@
+import {createRoot} from 'react-dom/client';
+import {finalizeEvent,generateSecretKey,getPublicKey,verifyEvent,nip44} from 'nostr-tools';
+import App from '../../components/petal-app';
+import {matchesRelayFilter} from '../../lib/relay-connections';
+import '../../app/globals.css';
+
+// Generated local identities only. Replace every WebSocket before mounting App.
+const secret=generateSecretKey(),author=generateSecretKey(),pubkey=getPublicKey(secret);
+const now=Math.floor(Date.now()/1000);
+const source=finalizeEvent({kind:1,content:'小さな発見を、みんなで。\n\nミュート設定の確認用の投稿です。',tags:[],created_at:now-10},author);
+const list=finalizeEvent({kind:10002,content:'',tags:[['r','wss://write.example','write'],['r','wss://read.example','read']],created_at:now-20},secret);
+const profile=finalizeEvent({kind:0,content:JSON.stringify({name:'fixture',display_name:'ひなた'}),tags:[],created_at:now-20},author);
+const conversation=nip44.v2.utils.getConversationKey(secret,pubkey);
+const muted=finalizeEvent({kind:10000,created_at:now-20,tags:[['t','広告'],['e','b'.repeat(64)]],content:nip44.v2.encrypt(JSON.stringify([['word','ネタバレ'],['p','c'.repeat(64)]]),conversation)},secret);
+const qa=window.qa={source,pubkey,signed:[],published:[],mode:'success',events:[source,list,profile,muted],partial:false};
+window.nostr={getPublicKey:async()=>{if(qa.loginHold)await new Promise(resolve=>qa.loginRelease=resolve);return pubkey},nip44:{encrypt:async(_,text)=>nip44.v2.encrypt(text,conversation),decrypt:async(_,text)=>nip44.v2.decrypt(text,conversation)},signEvent:async event=>{
+ qa.signed.push(event);
+ if(qa.mode==='cancel')throw Error('署名がキャンセルされました');
+ if(qa.mode==='hold')await new Promise(resolve=>qa.release=resolve);
+ return finalizeEvent(event,secret);
+}};
+window.WebSocket=class {
+ static OPEN=1;readyState=0;
+ constructor(url){this.url=new URL(url).href;setTimeout(()=>{if(this.readyState!==0)return;this.readyState=1;this.onopen?.()},0)}
+ receive(frame){setTimeout(()=>{if(this.readyState===1)this.onmessage?.({data:JSON.stringify(frame)})},0)}
+ send(raw){const frame=JSON.parse(raw);
+  if(frame[0]==='REQ'){
+   if(qa.partial&&this.url.includes('read.example')&&frame[2].kinds?.includes(10000)){this.receive(['CLOSED',frame[1],'mock partial']);return;}
+   for(const event of qa.events)if(frame.slice(2).some(filter=>matchesRelayFilter(event,filter)))this.receive(['EVENT',frame[1],event]);
+   this.receive(['EOSE',frame[1]]);
+  }else if(frame[0]==='EVENT'){
+   const event=frame[1];if(!verifyEvent(event))throw Error('Invalid test signature');
+   qa.published.push({url:this.url,event});
+   if(qa.mode==='timeout')return;
+   const accepted=qa.mode!=='reject';if(accepted)qa.events.push(event);
+   this.receive(['OK',event.id,accepted,accepted?'':'blocked: fixture rejection']);
+  }
+ }
+ close(){this.readyState=3}
+};
+createRoot(document.getElementById('root')).render(<App/>);

@@ -27,15 +27,14 @@ export function FollowingHistory({feed, auto = true}: {feed: ReturnType<typeof u
   const sentinel = useRef<HTMLDivElement>(null);
   const {state, loadOlder, refresh} = feed;
   useEffect(() => {
-    if (!auto || state.initial || state.loading || state.failed || state.done || state.limited || !sentinel.current) return;
+    if (!auto || state.initial || state.loading || state.done || state.limited || !sentinel.current) return;
     const observer = new IntersectionObserver(entries => { if (entries.some(entry => entry.isIntersecting)) loadOlder(); }, {rootMargin: '240px'});
     observer.observe(sentinel.current); return () => observer.disconnect();
   }, [auto, state, loadOlder]);
   return <div ref={sentinel} className="history-loader" aria-live="polite" aria-busy={state.loading}>
     {state.loading ? <Loading/> : state.limited ? <M3eButton onClick={refresh}>最新から読み直す</M3eButton> : <>
-      {state.partial && <><span>一部のリレーのみ取得しています</span><M3eButton variant="text" onClick={refresh}>再読み込み</M3eButton></>}
-      {state.failed > 0 && <><span>一部のリレーから取得できませんでした</span><M3eButton variant="tonal" onClick={() => loadOlder(true)}>再試行</M3eButton></>}
-      {state.done ? state.events.length > 0 && <span>これ以上の投稿はありません</span> : <M3eButton onClick={() => loadOlder()}>過去の投稿を読み込む</M3eButton>}
+      {state.failed > 0 ? <><span>一部の投稿を読み込めませんでした</span><M3eButton variant="tonal" onClick={() => loadOlder(true)}>再試行</M3eButton></> : state.partial && <><span>一部の投稿が表示されない場合があります</span><M3eButton variant="text" onClick={refresh}>再読み込み</M3eButton></>}
+      {state.done ? !state.failed && !state.partial && state.events.length > 0 && <span>これ以上の投稿はありません</span> : <M3eButton onClick={() => loadOlder()}>過去の投稿を読み込む</M3eButton>}
     </>}
   </div>;
 }

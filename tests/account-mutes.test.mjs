@@ -1,0 +1,66 @@
+import fs from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
+import assert from 'node:assert/strict';
+const require=createRequire(resolve('package.json')),ts=require('typescript');
+const {finalizeEvent,getPublicKey,nip44,generateSecretKey}=require('nostr-tools');
+const dir=resolve('.sites-runtime/account-mutes-test');await fs.mkdir(dir,{recursive:true});
+for(const file of ['account-mutes','mutes','latest-event']){
+ let source=await fs.readFile(`lib/${file}.ts`,'utf8');
+ source=source.replace("'nostr-tools'",JSON.stringify(pathToFileURL(require.resolve('nostr-tools').replace('/cjs/','/esm/')).href)).replaceAll("'./mutes'","'./mutes.mjs'").replaceAll("'./latest-event'","'./latest-event.mjs'");
+ await fs.writeFile(`${dir}/${file}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
+}
+const Original=globalThis.WebSocket;
+try {
+ const {validMuteList,readMuteList,accountEventMuted,saveMuteEdit,loadMuteList}=await import(pathToFileURL(`${dir}/account-mutes.mjs`));
+ const key=generateSecretKey(),owner=getPublicKey(key),other='a'.repeat(64),thread='b'.repeat(64),now=Math.floor(Date.now()/1000)-20;
+ const conversation=nip44.v2.utils.getConversationKey(key,owner);
+ const crypt={encrypt:async(pub,text)=>{assert.equal(pub,owner);return nip44.v2.encrypt(text,conversation)},decrypt:async(pub,text)=>{assert.equal(pub,owner);return nip44.v2.decrypt(text,conversation)}};
+ const signer={nip44:crypt,signEvent:async event=>finalizeEvent(event,key)};
+ const privateTags=[['word','hidden'],['t','secret'],['x','preserve private','hint']];
+ const make=(tags,content='',time=now)=>finalizeEvent({kind:10000,tags,content,created_at:time},key);
+ const event=make([['p',other,'relay','petname'],['e',thread],['t','topic'],['x','keep','unknown']],await crypt.encrypt(owner,JSON.stringify(privateTags)));
+ const list=await readMuteList(event,owner,signer);assert.deepEqual(list.privateTags,privateTags);
+ const {verifiedSymbol}=await import(pathToFileURL(require.resolve('nostr-tools').replace('/cjs/','/esm/')));
+ assert(!validMuteList({...event,sig:'0'.repeat(128),[verifiedSymbol]:true},owner));
+ assert(validMuteList(event,owner));assert(!validMuteList({...event,tags:[]},owner));
+ let decrypts=0;await assert.rejects(()=>readMuteList({...event,sig:'0'.repeat(128)},owner,{...signer,nip44:{...crypt,decrypt:async()=>{decrypts++;return '[]'}}}));assert.equal(decrypts,0);
+ assert.equal((await readMuteList(event,owner)).privateTags,null);
+ assert.match((await readMuteList(make([], 'old?iv=abc'),owner,signer)).warning,/旧形式/);
+ assert.equal((await readMuteList(make([],await crypt.encrypt(owner,'{"invalid":true}')),owner,signer)).privateTags,null);
+ const note={id:'c'.repeat(64),pubkey:owner,kind:1,content:'hello',tags:[]};
+ for(const patch of [{pubkey:other},{content:'HIDDEN text'},{tags:[['t','SECRET']]},{tags:[['t','TOPIC']]},{id:thread},{tags:[['e',thread,'','root']]},{tags:[['e',thread,'','reply']]},{tags:[['e',thread]]}])assert(accountEventMuted({...note,...patch},list));
+ assert(!accountEventMuted(note,{event:make([['word','   '],['t','  ']]),privateTags:[],warning:''}));
+ assert(!accountEventMuted(note,list));assert(!accountEventMuted({...note,tags:[['e',thread,'','mention']]},list));
+ assert(accountEventMuted({...note,kind:7,tags:[['e',thread]]},list));
+ assert(accountEventMuted({...note,kind:6,content:JSON.stringify({...note,tags:[['t','secret']]})},list));
+ assert(accountEventMuted({...note,kind:6,content:'',tags:[['p',other]]},list));
+ let sent=0,loads=0;const args={owner,base:list,edit:{scope:'private',type:'word',value:'New'},signal:new AbortController().signal,currentOwner:()=>owner,load:async()=>{loads++;return {event,complete:true}},signer,publish:async()=>{sent++;return {confirmed:1,total:2}}};
+ const saved=await saveMuteEdit(args);assert.equal(saved.confirmed,1);assert.equal(saved.total,2);assert.equal(sent,1);assert.equal(loads,2);assert.deepEqual(saved.list.event.tags,event.tags);assert.deepEqual(JSON.parse(await crypt.decrypt(owner,saved.list.event.content)),[...privateTags,['word','new']]);
+ const publicSave=await saveMuteEdit({...args,edit:{scope:'public',type:'t',value:'#New'}});assert.equal(publicSave.list.event.content,event.content);assert.deepEqual(publicSave.list.event.tags.at(-1),['t','new']);
+ const removed=await saveMuteEdit({...args,edit:{scope:'public',type:'p',value:other,remove:true}});assert.deepEqual(removed.list.event.tags,event.tags.slice(1));
+ const before=sent;
+ await assert.rejects(()=>saveMuteEdit({...args,signer:{signEvent:signer.signEvent}}),/非公開の保存に対応/);
+ await assert.rejects(()=>saveMuteEdit({...args,base:{...list,privateTags:null}}),/読めない/);
+ await assert.rejects(()=>saveMuteEdit({...args,load:async()=>({event,complete:false})}),/未応答/);
+ await assert.rejects(()=>saveMuteEdit({...args,load:async()=>({event:null,complete:true})}),/更新/);
+ let reads=0;await assert.rejects(()=>saveMuteEdit({...args,load:async()=>({event:++reads===1?event:make([], '',now+1),complete:true})}),/更新/);
+ await assert.rejects(()=>saveMuteEdit({...args,signer:{...signer,signEvent:async u=>finalizeEvent({...u,tags:[]},key)}}),/一致/);
+ await assert.rejects(()=>saveMuteEdit({...args,signer:{...signer,signEvent:async()=>{throw Error('cancelled')}}}),/cancelled/);
+ let active=owner;await assert.rejects(()=>saveMuteEdit({...args,currentOwner:()=>active,signer:{...signer,signEvent:async u=>{active=other;return finalizeEvent(u,key)}}}),/中止/);
+ const abort=new AbortController();await assert.rejects(()=>saveMuteEdit({...args,signal:abort.signal,signer:{...signer,nip44:{...crypt,encrypt:async(...v)=>{abort.abort();return crypt.encrypt(...v)}}}}),/中止/);
+ assert.equal(sent,before);
+ assert.equal((await saveMuteEdit({...args,publish:async()=>({confirmed:0,total:2})})).confirmed,0);
+ let scripts={},sockets=[];
+ class Socket{readyState=0;constructor(url){this.url=url;sockets.push(this);queueMicrotask(()=>{if(this.readyState===3)return;this.readyState=1;this.onopen?.()})}send(raw){const frame=JSON.parse(raw);if(frame[0]!=='REQ')return;assert.deepEqual(frame[2].kinds,[10000]);queueMicrotask(()=>{const script=scripts[this.url];if(script==='fail'){this.onerror?.();return}if(script==='closed'){this.onmessage?.({data:JSON.stringify(['CLOSED',frame[1],'auth-required'])});return}if(script==='wait')return;for(const e of script||[])this.onmessage?.({data:JSON.stringify(['EVENT',frame[1],e])});this.onmessage?.({data:JSON.stringify(['EOSE',frame[1]])})})}close(){this.readyState=3}}
+ globalThis.WebSocket=Socket;const a='wss://a.example',b='wss://b.example',signal=new AbortController().signal;
+ const newer=make([['word','newer']], '',now+2);scripts={[a]:[event],[b]:[newer]};assert.equal((await loadMuteList(owner,[a,b],signal)).event.id,newer.id);
+ const tie=make([['word','tie']], '',now+2);scripts={[a]:[tie],[b]:[newer]};assert.equal((await loadMuteList(owner,[a,b],signal)).event.id,[tie.id,newer.id].sort()[0]);
+ scripts={[a]:[event],[b]:'fail'};const partial=await loadMuteList(owner,[a,b],signal);assert.equal(partial.complete,false);assert.equal(partial.event.id,event.id);
+ scripts={[a]:[]};assert.deepEqual(await loadMuteList(owner,[a],signal),{event:null,complete:true});
+ scripts={[a]:'closed'};assert.equal((await loadMuteList(owner,[a],signal)).complete,false);
+ scripts={[a]:[{...event,sig:'0'.repeat(128)}]};assert.deepEqual(await loadMuteList(owner,[a],signal),{event:null,complete:false});
+ scripts={[a]:'wait'};const stop=new AbortController();const pending=loadMuteList(owner,[a],stop.signal);stop.abort();await assert.rejects(()=>pending,/中止/);assert(sockets.every(s=>s.readyState===3));
+ console.log('PASS account mutes: NIP-44, signature-before-decrypt, legacy/unreadable protection, unknown tags, p/word/t/e, conflict, cancellation, account switch, partial/empty/invalid relays, ACK');
+} finally {globalThis.WebSocket=Original;await fs.rm(dir,{recursive:true,force:true});}

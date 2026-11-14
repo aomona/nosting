@@ -24,15 +24,21 @@ with sync_playwright() as p:
   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
   page.screenshot(path=f'/tmp/nosting-following-{width}.png')
   page.evaluate('scrollTo(0,document.body.scrollHeight)')
-  page.get_by_text('一部のリレーから取得できませんでした',exact=True).wait_for()
+  page.get_by_text('一部の投稿を読み込めませんでした',exact=True).wait_for()
+  assert page.locator('.history-loader[aria-live="polite"][aria-busy="false"]').count()==1
   page.screenshot(path=f'/tmp/nosting-following-{width}-partial.png')
-  page.evaluate('window.qa.fail=false')
-  page.get_by_text('再試行',exact=True).click()
-  page.wait_for_timeout(300)
-  page.evaluate('scrollTo(0,document.body.scrollHeight)')
+  # A failed relay must not stop automatic paging of healthy outboxes.
   page.wait_for_function("document.querySelectorAll('[data-note-id]').length>=99")
   page.evaluate('scrollTo(0,document.body.scrollHeight)')
   page.wait_for_function("document.querySelectorAll('[data-note-id]').length===126")
+  page.get_by_text('一部の投稿を読み込めませんでした',exact=True).wait_for()
+  assert page.get_by_text('これ以上の投稿はありません',exact=True).count()==0
+  page.evaluate('scrollTo(0,document.body.scrollHeight)')
+  page.screenshot(path=f'/tmp/nosting-following-{width}-complete.png')
+  page.evaluate('window.qa.fail=false')
+  page.get_by_text('再試行',exact=True).click()
+  page.wait_for_timeout(300)
+  page.get_by_text('これ以上の投稿はありません',exact=True).wait_for()
   assert page.locator('[data-note-id]').evaluate_all('(els)=>new Set(els.map(e=>e.dataset.noteId)).size')==126
   page.evaluate('scrollTo(0,0)')
   page.locator('.tabs m3e-button').nth(0).click()
@@ -52,7 +58,7 @@ with sync_playwright() as p:
   # Log out and log in as a different mock account while requests are delayed.
   page.evaluate('window.qa.slow=true;window.qa.follow()')
   page.wait_for_timeout(100)
-  if width<650: page.locator('.mobile-header-settings').click()
+  if width<650: page.locator('.mobile-header-settings[aria-label="設定"]').click()
   else: page.locator('.header-account-button').click()
   page.get_by_text('ログアウト',exact=True).click()
   page.evaluate('window.qa.loginKey=window.qa.otherOwner;window.qa.slow=false')
@@ -68,5 +74,26 @@ with sync_playwright() as p:
   assert not errors,errors
   results.append({'width':width,'initial':50,'final':126,'partial_retry':True,'tab_cleanup':True,'follow_cleanup':True,'unmount_cleanup':True,'account_switch':True,'errors':errors})
   page.close()
+ # If coverage is incomplete as well as a relay failing, show one status at a
+ # time; after retry succeeds the separate refresh action becomes available.
+ page=browser.new_page(viewport={'width':1280,'height':900},reduced_motion='reduce')
+ page.route('**/*',lambda route:route.continue_() if route.request.url.startswith('http://127.0.0.1:4175') else route.abort())
+ page.goto('http://127.0.0.1:4175/tests/browser/following-feed.html')
+ page.evaluate('window.qa.extraRelays=true')
+ page.locator('.header-account-button').click()
+ page.wait_for_function("document.querySelector('.header-account-button').textContent==='アカウント'")
+ page.locator('.tabs m3e-button').nth(1).click()
+ page.get_by_text('一部の投稿を読み込めませんでした',exact=True).wait_for()
+ assert page.get_by_text('一部の投稿が表示されない場合があります',exact=True).count()==0
+ assert page.get_by_text('再読み込み',exact=True).count()==0
+ page.evaluate('window.qa.fail=false')
+ page.get_by_text('再試行',exact=True).click()
+ page.get_by_text('一部の投稿が表示されない場合があります',exact=True).wait_for()
+ assert page.get_by_text('一部の投稿を読み込めませんでした',exact=True).count()==0
+ page.get_by_text('再読み込み',exact=True).wait_for()
+ page.evaluate('window.qa.unmount()')
+ assert page.evaluate("window.qa.requests.every(r=>r.frame[0]==='REQ'||r.frame[0]==='CLOSE')")
+ page.close()
+ results.append({'partial_and_failure':'one status at a time','retry_reveals_partial_refresh':True})
  print(json.dumps(results,ensure_ascii=False,indent=2))
  browser.close()

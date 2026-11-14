@@ -10,7 +10,7 @@ with sync_playwright() as p:
   page.route('**/*',lambda route:route.continue_() if route.request.url.startswith('http://127.0.0.1:4174') else route.abort())
   page.goto('http://127.0.0.1:4174/tests/browser/account-mutes.html')
   page.wait_for_function('window.qa?.ready && window.qa.filtered')
-  assert page.get_by_label('保存先',exact=True).input_value()=='private'
+  assert page.get_by_label('公開範囲',exact=True).input_value()=='private'
   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
   page.screenshot(path=f'/tmp/nosting-account-mutes-{width}.png',full_page=True)
   page.locator('#mute-word').fill('ブラウザーのみ')
@@ -18,8 +18,8 @@ with sync_playwright() as p:
   page.wait_for_function("window.qa.local.words.includes('ブラウザーのみ')")
   page.get_by_label('種類',exact=True).select_option('word')
   page.locator('#account-mute-value').fill('追加のテスト')
-  page.get_by_text('署名して追加',exact=True).click()
-  page.get_by_text('1/2 リレーで保存を確認（残りは未確認）',exact=True).wait_for()
+  page.locator('.account-mute-settings').get_by_text('追加',exact=True).click()
+  page.get_by_text('1/2か所で保存を確認（残りは未確認）',exact=True).wait_for()
   assert page.evaluate('window.qa.sent.length')==1
   assert page.evaluate("window.qa.local.words.includes('ブラウザーのみ')")
   page.get_by_text('再読み込み',exact=True).click()
@@ -35,7 +35,7 @@ with sync_playwright() as p:
   page.wait_for_timeout(1100)
   page.evaluate('window.qa.signWait=true')
   page.locator('#account-mute-value').fill('キャンセル')
-  page.get_by_text('署名して追加',exact=True).click()
+  page.locator('.account-mute-settings').get_by_text('追加',exact=True).click()
   page.wait_for_function('typeof window.qa.releaseSign==="function"')
   page.evaluate('window.qa.close()')
   page.wait_for_function('!document.querySelector(".account-mute-settings")')

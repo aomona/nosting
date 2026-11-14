@@ -19,17 +19,17 @@ export async function readMuteList(event: Event | null, owner: string, signer?: 
  if (!validMuteList(event, owner)) throw Error('ミュート一覧の署名を確認できません');
  if (!event.content) return {event, privateTags: [], warning: ''};
  // Deprecated NIP-04 is deliberately not decrypted or migrated implicitly.
- if (event.content.includes('?iv=')) return {event, privateTags: null, warning: '旧形式（NIP-04）の非公開一覧は編集できません'};
+ if (event.content.includes('?iv=')) return {event, privateTags: null, warning: '旧形式の非公開一覧は編集できません'};
  try {
   if (!signer?.nip44) throw Error();
   const tags: unknown = JSON.parse(await signer.nip44.decrypt(owner, event.content));
   if (!Array.isArray(tags) || tags.length > 10000 || !tags.every(t => Array.isArray(t) && t.every(v => typeof v === 'string'))) throw Error();
   return {event, privateTags: tags, warning: ''};
- } catch {return {event, privateTags: null, warning: '非公開一覧を復号できません。保存は無効です'};}
+ } catch {return {event, privateTags: null, warning: '非公開の一覧を開けないため、編集できません'};}
 }
 export function muteValue(type: MuteType, value: string): string {
  const normalized = type === 'word' || type === 't' ? normalizeWord(value).replace(type === 't' ? /^#/ : /$^/, '') : value.trim().toLowerCase();
- if (!normalized || normalized.length > 200 || ((type === 'p' || type === 'e') && !hex(normalized))) throw Error('ミュートする値を確認してください');
+ if (!normalized || normalized.length > 200 || ((type === 'p' || type === 'e') && !hex(normalized))) throw Error(type === 'p' || type === 'e' ? `${type === 'p' ? '公開鍵' : '投稿ID'}は64桁の16進数で入力してください` : '1〜200文字で入力してください');
  return normalized;
 }
 export function editableMute(tag: string[]): boolean {
@@ -64,9 +64,9 @@ export async function saveMuteEdit(args: {owner: string; base: MuteList; edit: M
  if (scope === 'public') tags = changed; else privateTags = changed;
  let content = args.base.event?.content ?? '';
  if (scope === 'private') {
-  if (!args.signer.nip44) throw Error('NIP-44 対応の署名機能が必要です');
+  if (!args.signer.nip44) throw Error('接続中の拡張機能は非公開の保存に対応していません');
   content = await args.signer.nip44.encrypt(args.owner, JSON.stringify(privateTags)); check();
-  if (content.length < 132 || content.length > 100000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(content) || atob(content).charCodeAt(0) !== 2) throw Error('NIP-44 暗号化を確認できません');
+  if (content.length < 132 || content.length > 100000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(content) || atob(content).charCodeAt(0) !== 2) throw Error('非公開で保存できることを確認できません');
   // Detect malformed/mutated signer output before signing or publishing.
   if (await args.signer.nip44.decrypt(args.owner, content) !== JSON.stringify(privateTags)) throw Error('暗号化された内容が一致しません'); check();
  }

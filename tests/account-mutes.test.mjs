@@ -27,7 +27,7 @@ try {
  assert(validMuteList(event,owner));assert(!validMuteList({...event,tags:[]},owner));
  let decrypts=0;await assert.rejects(()=>readMuteList({...event,sig:'0'.repeat(128)},owner,{...signer,nip44:{...crypt,decrypt:async()=>{decrypts++;return '[]'}}}));assert.equal(decrypts,0);
  assert.equal((await readMuteList(event,owner)).privateTags,null);
- assert.match((await readMuteList(make([], 'old?iv=abc'),owner,signer)).warning,/NIP-04/);
+ assert.match((await readMuteList(make([], 'old?iv=abc'),owner,signer)).warning,/旧形式/);
  assert.equal((await readMuteList(make([],await crypt.encrypt(owner,'{"invalid":true}')),owner,signer)).privateTags,null);
  const note={id:'c'.repeat(64),pubkey:owner,kind:1,content:'hello',tags:[]};
  for(const patch of [{pubkey:other},{content:'HIDDEN text'},{tags:[['t','SECRET']]},{tags:[['t','TOPIC']]},{id:thread},{tags:[['e',thread,'','root']]},{tags:[['e',thread,'','reply']]},{tags:[['e',thread]]}])assert(accountEventMuted({...note,...patch},list));
@@ -41,7 +41,7 @@ try {
  const publicSave=await saveMuteEdit({...args,edit:{scope:'public',type:'t',value:'#New'}});assert.equal(publicSave.list.event.content,event.content);assert.deepEqual(publicSave.list.event.tags.at(-1),['t','new']);
  const removed=await saveMuteEdit({...args,edit:{scope:'public',type:'p',value:other,remove:true}});assert.deepEqual(removed.list.event.tags,event.tags.slice(1));
  const before=sent;
- await assert.rejects(()=>saveMuteEdit({...args,signer:{signEvent:signer.signEvent}}),/NIP-44/);
+ await assert.rejects(()=>saveMuteEdit({...args,signer:{signEvent:signer.signEvent}}),/非公開の保存に対応/);
  await assert.rejects(()=>saveMuteEdit({...args,base:{...list,privateTags:null}}),/読めない/);
  await assert.rejects(()=>saveMuteEdit({...args,load:async()=>({event,complete:false})}),/未応答/);
  await assert.rejects(()=>saveMuteEdit({...args,load:async()=>({event:null,complete:true})}),/更新/);

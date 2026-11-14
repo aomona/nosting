@@ -1,9 +1,10 @@
 import {verifyEvent,type Event,type EventTemplate} from 'nostr-tools';
-export const PROFILE_FIELDS=['name','display_name','about','picture','banner','website'] as const;
+import {parseNip05} from './nip05';
+export const PROFILE_FIELDS=['name','display_name','about','picture','banner','website','nip05'] as const;
 export type ProfileField=typeof PROFILE_FIELDS[number];
 export type ProfileDraft=Record<ProfileField,string>;
 export type EditableProfile={event:Event;metadata:Record<string,unknown>};
-const limits:Record<ProfileField,number>={name:100,display_name:100,about:5000,picture:2048,banner:2048,website:2048};
+const limits:Record<ProfileField,number>={name:100,display_name:100,about:5000,picture:2048,banner:2048,website:2048,nip05:320};
 export function parseEditableProfile(event:Event,pubkey:string):EditableProfile|null{try{if(event.kind!==0||event.pubkey!==pubkey||!Number.isSafeInteger(event.created_at)||event.created_at<0||event.content.length>20000||!verifyEvent({id:event.id,pubkey:event.pubkey,kind:event.kind,created_at:event.created_at,content:event.content,tags:event.tags,sig:event.sig}))return null;const data=JSON.parse(event.content);if(!data||typeof data!=='object'||Array.isArray(data))return null;return {event,metadata:data}}catch{return null}}
 export function profileDraft(base:EditableProfile|null):ProfileDraft{return Object.fromEntries(PROFILE_FIELDS.map(k=>[k,typeof base?.metadata[k]==='string'?base.metadata[k]:''])) as ProfileDraft}
 export function buildProfileEdit(base:EditableProfile|null,latest:EditableProfile|null,draft:ProfileDraft,now=Math.floor(Date.now()/1000)):EventTemplate{
@@ -11,7 +12,7 @@ export function buildProfileEdit(base:EditableProfile|null,latest:EditableProfil
  // Do not publish into the future or risk same-second replaceable-event ties.
  if(latest&&now<=latest.event.created_at)throw Error('更新時刻が重なっています。少し待ってから保存してください');
  const data={...(latest?.metadata??{})};const original=profileDraft(latest);
- for(const field of PROFILE_FIELDS){const value=draft[field];if(value===original[field])continue;if(typeof value!=='string'||value.length>limits[field])throw Error(`${field} が長すぎます`);if(['picture','banner','website'].includes(field)&&value){let u:URL;try{u=new URL(value)}catch{throw Error(`${field} のURLを確認してください`)}if(u.protocol!=='https:'||u.username||u.password)throw Error(`${field} はHTTPSのURLを指定してください`)}if(value)data[field]=value;else delete data[field]}
+ for(const field of PROFILE_FIELDS){const value=draft[field];if(value===original[field])continue;if(typeof value!=='string'||value.length>limits[field])throw Error(`${field} が長すぎます`);if(field==='nip05'&&value&&!parseNip05(value))throw Error('NIP-05 は name@example.com の形式で指定してください');if(['picture','banner','website'].includes(field)&&value){let u:URL;try{u=new URL(value)}catch{throw Error(`${field} のURLを確認してください`)}if(u.protocol!=='https:'||u.username||u.password)throw Error(`${field} はHTTPSのURLを指定してください`)}if(value)data[field]=value;else delete data[field]}
  const content=JSON.stringify(data);if(content.length>20000)throw Error('プロフィール全体が長すぎます');
  return {kind:0,created_at:now,content,tags:(latest?.event.tags??[]).map(t=>[...t])};
 }

@@ -1,0 +1,102 @@
+from playwright.sync_api import sync_playwright,expect
+import os,shutil,json
+with sync_playwright() as p:
+ browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'),headless=True,args=['--no-sandbox'])
+ results=[]
+ for width,height in [(1280,1000),(390,844),(320,640)]:
+  page=browser.new_page(viewport={'width':width,'height':height},reduced_motion='reduce')
+  errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+  page.route('**/*',lambda r:r.continue_() if r.request.url.startswith('http://127.0.0.1:4174') else r.abort())
+  page.goto('http://127.0.0.1:4174/tests/browser/account-mutes-app.html')
+  page.locator('.header-account-button').click()
+  page.wait_for_function("document.querySelector('.header-account-button').textContent==='アカウント'")
+  page.locator('.mobile-header-settings' if width<650 else '.header-account-button').click()
+  page.get_by_text('ミュート',exact=True).click()
+  account=page.get_by_role('region',name='アカウントのミュート',exact=True)
+  add=account.locator('.mute-toolbar').get_by_text('追加',exact=True)
+  expect(add).to_be_enabled()
+  expect(account.get_by_text('ネタバレ',exact=True)).to_be_visible()
+  # Compact identifiers expand on touch; full values remain selectable and never overflow.
+  identifier=account.locator('.mute-identifier').first
+  expect(identifier.locator('code')).not_to_be_visible()
+  identifier.locator('summary').click()
+  expect(identifier.locator('code')).to_be_visible()
+  assert identifier.locator('code').inner_text()=='c'*64
+  identifier.locator('summary').click()
+  assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+  assert account.evaluate('(e)=>e.scrollWidth<=e.clientWidth')
+  sizes=account.locator('m3e-button,m3e-icon-button,summary').evaluate_all('(els)=>els.filter(e=>e.getBoundingClientRect().height).map(e=>({h:e.getBoundingClientRect().height,w:e.getBoundingClientRect().width}))')
+  assert all(s['h']>=44 and s['w']>=44 for s in sizes),sizes
+  if width in [1280,390]:page.screenshot(path=f'/tmp/nosting-account-mutes-{width}.png')
+  # Invalid key: preserve input and selection, emit no signature/publication.
+  add.click()
+  expect(account.get_by_role('button',name='非公開',exact=True)).to_have_attribute('aria-pressed','true')
+  expect(account.locator('input')).to_be_focused()
+  account.locator('input').fill('invalid')
+  account.locator('form').get_by_text('追加',exact=True).click()
+  expect(account.get_by_role('alert')).to_contain_text('64桁')
+  assert page.evaluate('qa.signed.length===0 && qa.published.length===0')
+  expect(account.locator('input')).to_have_value('invalid')
+  # Public selection is visible and the action names the publication explicitly.
+  account.get_by_role('button',name='公開',exact=True).click()
+  account.get_by_label('種類',exact=True).select_option('word')
+  account.locator('input').fill('公開テスト')
+  expect(account.get_by_role('button',name='公開',exact=True)).to_have_attribute('aria-pressed','true')
+  if width in [1280,390]:page.screenshot(path=f'/tmp/nosting-account-mutes-{width}-add.png')
+  if width==390:
+   page.set_viewport_size({'width':390,'height':520})
+   account.locator('input').scroll_into_view_if_needed()
+   assert account.evaluate('(e)=>e.scrollWidth<=e.clientWidth')
+  account.get_by_text('公開して追加',exact=True).click()
+  if width==390:page.set_viewport_size({'width':390,'height':844})
+  expect(account.get_by_text('公開テスト',exact=True)).to_be_visible()
+  expect(add).to_be_enabled()
+  expect(account.get_by_role('status')).to_contain_text('保存を確認')
+  assert page.evaluate("qa.published.at(-1).event.tags.some(t=>t[0]==='word'&&t[1]==='公開テスト')")
+  # Remove without manual refresh; controls recover only after a complete refresh.
+  page.wait_for_timeout(1100)
+  account.get_by_role('button',name='公開の公開テストを解除',exact=True).click()
+  expect(account.get_by_text('公開テスト',exact=True)).to_have_count(0)
+  expect(add).to_be_enabled()
+  # Private entry must remain encrypted in the signed/publication payload.
+  page.wait_for_timeout(1100)
+  add.click();account.get_by_label('種類',exact=True).select_option('word')
+  expect(account.get_by_role('button',name='非公開',exact=True)).to_have_attribute('aria-pressed','true')
+  account.locator('input').fill('非公開テスト')
+  account.locator('form').get_by_text('追加',exact=True).click()
+  expect(account.get_by_text('非公開テスト',exact=True)).to_be_visible();expect(add).to_be_enabled()
+  assert page.evaluate("!JSON.stringify(qa.published.at(-1).event).includes('非公開テスト')")
+  # Partial read still blocks edits, with a reason and a reachable retry.
+  page.evaluate('qa.partial=true')
+  account.get_by_role('button',name='再読み込み',exact=True).click()
+  expect(account.get_by_role('alert')).to_contain_text('未応答')
+  expect(add).to_be_disabled()
+  if width in [1280,390]:page.screenshot(path=f'/tmp/nosting-account-mutes-{width}-error.png')
+  page.evaluate('qa.partial=false');account.get_by_role('button',name='再読み込み',exact=True).click();expect(add).to_be_enabled()
+  # Local editing is separate, uses the same compact layout, and emits no event.
+  sent=page.evaluate('qa.published.length')
+  page.get_by_role('button',name='この端末',exact=True).click()
+  local=page.get_by_role('region',name='この端末のミュート',exact=True)
+  expect(account).to_have_count(0)
+  local.get_by_text('追加',exact=True).click();local.get_by_label('種類',exact=True).select_option('words')
+  local.locator('input').fill('端末のテスト');local.locator('form').get_by_text('追加',exact=True).click()
+  expect(local.get_by_text('端末のテスト',exact=True)).to_be_visible()
+  local.get_by_role('button',name='端末のテストのミュートを解除',exact=True).click()
+  expect(local.get_by_text('端末のテスト',exact=True)).to_have_count(0)
+  assert page.evaluate('qa.published.length')==sent
+  page.get_by_role('group',name='保存先',exact=True).get_by_role('button',name='アカウント',exact=True).click()
+  expect(account.get_by_text('非公開テスト',exact=True)).to_be_visible()
+  page.wait_for_timeout(1100)
+  sent=page.evaluate('qa.published.length')
+  page.evaluate("qa.mode='hold'")
+  add.click();account.get_by_label('種類',exact=True).select_option('word');account.locator('input').fill('中止する項目')
+  account.locator('form').get_by_text('追加',exact=True).click()
+  page.wait_for_function('typeof qa.release==="function"')
+  page.get_by_role('button',name='この端末',exact=True).click()
+  page.evaluate("qa.release();qa.mode='success'")
+  page.wait_for_timeout(100)
+  assert page.evaluate('qa.published.length')==sent
+  assert not errors,errors
+  results.append({'width':width,'touch_targets':sizes,'overflow':False,'expand_identifier':True,'invalid_input_no_sign':True,'public_add_remove':True,'private_encrypted':True,'partial_read_guard':True,'local_isolation':True,'errors':errors})
+  page.close()
+ print(json.dumps(results,ensure_ascii=False,indent=2));browser.close()

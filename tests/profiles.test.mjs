@@ -13,3 +13,5 @@ console.log('PASS kind0 profile/banner validation: https public URL only, empty/
 
 assert.equal(profiles.readProfile({content:JSON.stringify({name:':x:'}),created_at:1,id:'1',tags:[['emoji','x','https://example.com/x.png']]}).emojis.x,'https://example.com/x.png');
 assert.equal(Object.keys(profiles.readProfile({content:'{}',created_at:1,id:'1',tags:[['emoji','x','https://example.com/x.png'],['content-warning']]}).emojis).length,0);
+
+assert.equal(read({nip05:'alice@example.com'}).nip05,'alice@example.com');assert.equal(read({nip05:42}).nip05,'');assert.equal(read({nip05:'x'.repeat(400)}).nip05,'');

@@ -149,7 +149,7 @@ export function createFollowingFeed(authorsInput: string[], readRelays: string[]
   });
   function emit() {
     if (alive) update({events, originals, loading, initial, failed: failed.size, partial,
-      done: !routes.size || [...routes.keys()].every(url => cursors.get(url)?.done), limited: events.length >= FEED_LIMIT});
+      done: !routes.size || [...routes.keys()].every(url => failed.has(url) || cursors.get(url)?.done), limited: events.length >= FEED_LIMIT});
   }
   function schedule() { if (alive && !batch) batch = setTimeout(() => { batch = undefined; emit(); }, 50); }
   function collect(event: Event) {

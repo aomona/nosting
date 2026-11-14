@@ -1,3 +1,4 @@
+import {jpeg,progressiveJpeg} from './fixtures/jpeg.mjs';
 import fs from 'node:fs/promises';import ts from 'typescript';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {pathToFileURL} from 'node:url';import {resolve} from 'node:path';import {finalizeEvent,generateSecretKey} from 'nostr-tools';
 await fs.mkdir('.sites-runtime',{recursive:true});const dir=await fs.mkdtemp(resolve('.sites-runtime/upload-test-'));
 try{
@@ -16,7 +17,7 @@ function bucket(){const map=new Map();return{map,puts:0,async put(key,bytes){thi
 const png=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3foAAAAASUVORK5CYII=','base64')),secret=generateSecretKey(),url='https://petal.example/api/uploads';
 const hash=await sha256(png);
 assert.equal(imageMime(png),'image/png');const huge=png.slice();new DataView(huge.buffer).setUint32(16,16385);assert.equal(imageMime(huge),null);
-const jpeg=new Uint8Array([255,216,255,192,0,8,8,0,1,0,1,0,255,217]);assert.equal(imageMime(jpeg),'image/jpeg');jpeg[9]=255;assert.equal(imageMime(jpeg),null);
+assert.equal(imageMime(jpeg),'image/jpeg');assert.equal(imageMime(progressiveJpeg),'image/jpeg');
 const webp=new Uint8Array(30);webp.set(new TextEncoder().encode('RIFF'),0);new DataView(webp.buffer).setUint32(4,22,true);webp.set(new TextEncoder().encode('WEBPVP8X'),8);assert.equal(imageMime(webp),'image/webp');webp[26]=1;assert.equal(imageMime(webp),null);
 
 // Small, fully decodable fixtures (clear, four palette indices, EOI), no external files.
@@ -103,6 +104,45 @@ const bad=JSON.parse(JSON.stringify(auth()));bad.sig='0'.repeat(128);assert.thro
 assert.equal((await handleUpload(request(auth({tags:[['u',url],['method','POST'],['payload','0'.repeat(64)]]})),env)).status,401);
 assert.equal((await handleUpload(request(auth(),new TextEncoder().encode('<svg/>'),'image/svg+xml'),env)).status,415);assert.equal((await handleUpload(request(auth(),png,'image/jpeg'),env)).status,415);
 await assert.rejects(()=>readImage(new Request(url,{method:'POST',headers:{'Content-Type':'image/png'},body:new Uint8Array(MAX_UPLOAD+1)})),e=>e.status===413);
+// Camera compatibility: segment lengths, not embedded marker bytes, delimit EXIF.
+const join=(...parts)=>new Uint8Array(Buffer.concat(parts.map(p=>Buffer.from(p))));
+const segment=(marker,payload)=>join([255,marker,(payload.length+2)>>8,(payload.length+2)&255],payload);
+const exif=segment(0xe1,join(new TextEncoder().encode('Exif\0\0'),[0x49,0x49,42,0,8,0,0,0,0,0,0,0,0,0,255,217,255,192]));
+const camera=join(jpeg.slice(0,2),exif,segment(0xe2,new TextEncoder().encode('ICC_PROFILE\0')),jpeg.slice(2),new TextEncoder().encode('camera trailer'));
+assert.equal(imageMime(camera),'image/jpeg');
+assert.equal(imageMime(join(progressiveJpeg.slice(0,2),exif,progressiveJpeg.slice(2),[0,0,0])),'image/jpeg');
+assert.equal(imageMime(join([42],camera).subarray(1)),'image/jpeg'); // non-zero byteOffset
+const cameraHash=await sha256(camera),cameraEnv={DB:db(),BUCKET:bucket()};
+const cameraResponse=await handleUpload(request(auth({tags:[['u',url],['method','POST'],['payload',cameraHash]]}),camera,'image/jpeg'),cameraEnv);
+assert.equal(cameraResponse.status,201);const cameraStored=await cameraResponse.json();
+assert.equal(cameraStored.sha256,cameraHash);assert.equal(cameraStored.size,camera.length);
+const cameraMedia=await handleMedia(new Request(cameraStored.url),cameraStored.key,cameraEnv);
+assert.equal(cameraMedia.headers.get('Content-Type'),'image/jpeg');assert.equal(cameraMedia.headers.get('X-Content-Type-Options'),'nosniff');assert.match(cameraMedia.headers.get('Content-Security-Policy'),/sandbox/);
+assert.deepEqual(new Uint8Array(await cameraMedia.arrayBuffer()),camera); // no EXIF/trailer/hash rewrite
+const sof=jpeg.findIndex((b,i)=>b===255&&jpeg[i+1]===192),sos=jpeg.findIndex((b,i)=>b===255&&jpeg[i+1]===218);
+const withDimensions=(w,h)=>{const b=jpeg.slice(),v=new DataView(b.buffer);v.setUint16(sof+5,h);v.setUint16(sof+7,w);return b};
+const jpegRequest=(b,headers={})=>new Request(url,{method:'POST',headers:{'Content-Type':'image/jpeg',...headers},body:b});
+for(const [w,h] of [[8000,8000],[16384,1]])assert.equal((await readImage(jpegRequest(withDimensions(w,h)))).mime,'image/jpeg');
+for(const [w,h] of [[8001,8000],[16385,1],[1,16385]])await assert.rejects(()=>readImage(jpegRequest(withDimensions(w,h))),e=>e.status===413&&e.message.includes('64 MP'));
+const badLength=jpeg.slice();badLength[4]=255;badLength[5]=255;
+const badSof=jpeg.slice();badSof[sof+9]=0;
+const badSos=jpeg.slice();badSos[sos+4]=4;
+const badScanComponent=jpeg.slice();badScanComponent[sos+5]=99;
+const entropyStart=sos+2+new DataView(jpeg.buffer).getUint16(sos+2);
+for(const broken of [jpeg.slice(0,-2),jpeg.slice(0,-1),join(jpeg.slice(0,sof+19),[255,217]),badLength,badSof,badSos,badScanComponent,withDimensions(0,8),join(jpeg.slice(0,entropyStart),[255,217]),join(jpeg.slice(0,entropyStart),[12,255]),join(jpeg.slice(0,entropyStart),[12,255,0,217]),join(jpeg.slice(0,entropyStart),[12,255,224,0,1,255,217])]){
+ assert.equal(imageMime(broken),null);
+ await assert.rejects(()=>readImage(jpegRequest(broken)),e=>e.status===415&&e.message.includes('JPEG'));
+ const invalidEnv={DB:db(),BUCKET:bucket()};assert.equal((await handleUpload(request(auth(),broken,'image/jpeg'),invalidEnv)).status,415);assert.equal(invalidEnv.BUCKET.puts,0);
+}
+// Marker-only SOF impostors previously passed without any image scan.
+assert.equal(imageMime(new Uint8Array([255,216,255,192,0,8,8,0,1,0,1,0,255,217])),null);
+// Exercise entropy escaping/restarts/fill and a later progressive scan truncation.
+assert.equal(imageMime(join(jpeg.slice(0,entropyStart),[12,255,0,23,255,208,34,255,255,217])),'image/jpeg');
+assert.equal(imageMime(progressiveJpeg.slice(0,-10)),null);
+for(const size of [MAX_UPLOAD-1,MAX_UPLOAD]){const padded=new Uint8Array(size);padded.set(camera);assert.equal((await readImage(jpegRequest(padded,{'Content-Length':String(size)}))).size,size)}
+await assert.rejects(()=>readImage(jpegRequest(camera,{'Content-Length':String(MAX_UPLOAD+1)})),e=>e.status===413&&e.message.includes('30 MB'));
+await assert.rejects(()=>readImage(jpegRequest(new Uint8Array(MAX_UPLOAD+1))),e=>e.status===413&&e.message.includes('30 MB'));
+await assert.rejects(()=>readImage(jpegRequest(camera,{'Content-Type':'image/png'})),e=>e.status===415);
 const uncertainDB=db();const uncertainEvent=auth({created_at:Math.floor(Date.now()/1000)-1});const uncertain={DB:uncertainDB,BUCKET:{async put(){throw Error('uncertain')}}};assert.equal((await handleUpload(request(uncertainEvent),uncertain)).status,503);assert.equal(uncertainDB.sql.prepare('SELECT state FROM media_uploads').get().state,'pending');assert.equal((await handleUpload(request(uncertainEvent),uncertain)).status,409);
 // Every old app quota is removed; only per-image size and replay reservations remain.
 function reserve(database,id,pubkey,size,day=1){return database.sql.prepare(RESERVE_SQL).run(id,pubkey,'hash',id,size,'image/png',day,day*86400).changes}

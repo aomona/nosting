@@ -72,12 +72,59 @@ function validGif(bytes:Uint8Array):boolean{
  }
  return false;
 }
+// Walk marker boundaries through every scan, not EXIF payloads or only the last
+// two bytes. This is bounded structural validation, not a pixel/entropy decoder.
+function jpegStatus(bytes:Uint8Array):'valid'|'invalid'|'dimensions'{
+ if(bytes.length<4||bytes[0]!==0xff||bytes[1]!==0xd8)return 'invalid';
+ const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+ let p=2,frame=false,scan=false,inScan=false,scanData=false,tooLarge=false;
+ const components=new Set<number>();
+ while(p<bytes.length){
+  if(inScan&&bytes[p]!==0xff){scanData=true;p++;continue}
+  if(bytes[p++]!==0xff)return 'invalid';
+  while(bytes[p]===0xff)p++;
+  if(p>=bytes.length)return 'invalid';
+  const marker=bytes[p++];
+  if(inScan){
+   if(marker===0){scanData=true;continue} // stuffed entropy byte
+   if(marker>=0xd0&&marker<=0xd7||marker===1)continue;
+   if(!scanData)return 'invalid';
+   inScan=false;
+  }
+  if(marker===0xd9){
+   // Camera trailers are outside the JPEG codestream. Keep the original bytes
+   // (and signed hash); all bytes still count against the 30 MB request limit.
+   return frame&&scan?(tooLarge?'dimensions':'valid'):'invalid';
+  }
+  if(marker===1)continue;
+  if(marker<0xc0||marker===0xd8||marker>=0xd0&&marker<=0xd7)return 'invalid';
+  if(p+2>bytes.length)return 'invalid';
+  const length=view.getUint16(p);
+  if(length<2||p+length>bytes.length)return 'invalid';
+  if([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)){
+   if(frame||length<8)return 'invalid';
+   const height=view.getUint16(p+3),width=view.getUint16(p+5),count=bytes[p+7];
+   if(!width||!height||!count||length!==8+3*count)return 'invalid';
+   for(let i=0;i<count;i++)components.add(bytes[p+8+3*i]);
+   if(components.size!==count)return 'invalid';
+   tooLarge=!dimensions(width,height);frame=true;
+  }
+  if(marker===0xda){
+   if(!frame||length<6)return 'invalid';
+   const count=bytes[p+2],selected=new Set<number>();
+   if(!count||count>4||length!==6+2*count)return 'invalid';
+   for(let i=0;i<count;i++)selected.add(bytes[p+3+2*i]);
+   if(selected.size!==count||[...selected].some(id=>!components.has(id)))return 'invalid';
+   scan=true;inScan=true;scanData=false;
+  }
+  p+=length;
+ }
+ return 'invalid';
+}
 export function imageMime(bytes:Uint8Array):string|null{
  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
  if(bytes.length>=45&&[137,80,78,71,13,10,26,10].every((b,i)=>bytes[i]===b)&&view.getUint32(8)===13&&String.fromCharCode(...bytes.slice(12,16))==='IHDR'&&String.fromCharCode(...bytes.slice(-8,-4))==='IEND'&&dimensions(view.getUint32(16),view.getUint32(20)))return 'image/png';
- if(bytes.length>=4&&bytes[0]===255&&bytes[1]===216&&bytes.at(-2)===255&&bytes.at(-1)===217){
-  let p=2;while(p+3<bytes.length){if(bytes[p++]!==255)break;while(bytes[p]===255)p++;const marker=bytes[p++];if(marker===217||marker===218)break;if(marker===1||marker>=208&&marker<=215)continue;if(p+2>bytes.length)break;const length=view.getUint16(p);if(length<2||p+length>bytes.length)break;if([192,193,194,195,197,198,199,201,202,203,205,206,207].includes(marker)&&length>=8&&dimensions(view.getUint16(p+5),view.getUint16(p+3)))return 'image/jpeg';p+=length;}
- }
+ if(jpegStatus(bytes)==='valid')return 'image/jpeg';
  if(bytes.length>=25&&String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&String.fromCharCode(...bytes.slice(8,12))==='WEBP'&&view.getUint32(4,true)===bytes.length-8){
   const type=String.fromCharCode(...bytes.slice(12,16));let width=0,height=0;
   if(type==='VP8X'&&bytes.length>=30){width=1+bytes[24]+(bytes[25]<<8)+(bytes[26]<<16);height=1+bytes[27]+(bytes[28]<<8)+(bytes[29]<<16)}
@@ -110,7 +157,12 @@ export async function readImage(request:Request){
  try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>MAX_UPLOAD){void reader.cancel();throw new UploadError(413,'画像は30 MB以内にしてください')}if(destination){if(size>destination.length){void reader.cancel();throw new UploadError(400,'画像サイズが不正です')}destination.set(value,size-value.length)}else parts.push(value)}}finally{reader.releaseLock()}
  if(!size||length!==null&&Number(length)!==size)throw new UploadError(400,'画像サイズが不正です');
  const bytes=destination??new Uint8Array(size);let offset=0;for(const part of parts){bytes.set(part,offset);offset+=part.length}parts.length=0
- if(imageMime(bytes)!==mime)throw new UploadError(415,'画像の形式とContent-Typeが一致しません');return {bytes,mime:mime!,size};
+ if(mime==='image/jpeg'&&bytes[0]===0xff&&bytes[1]===0xd8){
+  const status=jpegStatus(bytes);
+  if(status==='dimensions')throw new UploadError(413,'画像は64 MP以下・各辺16,384 px以下にしてください');
+  if(status==='invalid')throw new UploadError(415,'JPEGが壊れているか、対応していない形式です');
+ }else if(imageMime(bytes)!==mime)throw new UploadError(415,'画像の形式とContent-Typeが一致しません');
+ return {bytes,mime:mime!,size};
 }
 export const RESERVE_SQL=`INSERT INTO media_uploads(auth_id,pubkey,payload_hash,object_key,size,mime,day,created_at,state)
  VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'pending')

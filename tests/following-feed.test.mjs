@@ -7,7 +7,7 @@ import {finalizeEvent, generateSecretKey, getPublicKey} from 'nostr-tools';
 await fs.mkdir('.sites-runtime', {recursive:true});
 const dir = await fs.mkdtemp(resolve('.sites-runtime/following-'));
 try {
-  for (const name of ['following-feed','relay-connections','relay-discovery','relays','latest-event','history-pager','feed-retention','timeline-reposts','repost','quotes']) {
+  for (const name of ['relay-auth','following-feed','relay-connections','relay-discovery','relays','latest-event','history-pager','feed-retention','timeline-reposts','repost','quotes']) {
     const source = await fs.readFile(`lib/${name}.ts`, 'utf8');
     const output = ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText.replace(/from '(\.\/[^']+)'/g, "from '$1.mjs'");
     await fs.writeFile(`${dir}/${name}.mjs`, output);

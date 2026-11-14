@@ -90,7 +90,7 @@ with sync_playwright() as p:
         trigger.click();opened();choose(quote);closed()
         expect(page.get_by_text('Nostr署名拡張機能（NIP-07）が見つかりません。対応ブラウザで開いてください。')).to_be_visible()
         page.keyboard.press('Escape')
-        expect(page.locator('m3e-dialog')).not_to_have_attribute('open','')
+        expect(page.locator('m3e-dialog[aria-label="設定と接続"]')).not_to_have_attribute('open','')
         page.evaluate('window.nostr=qa.signer')
         # Guest repost logs in, but does not implicitly sign or publish.
         guest_menu_id=trigger.get_attribute('aria-controls')

@@ -8,6 +8,7 @@ import {emojiMap} from '../lib/custom-emoji';
 import {QuoteContext,QuoteOpenContext} from './quote-card';
 import {MentionContext} from './mention';
 import {MuteContext} from './mute-context';
+import {useEventDeleted} from './event-deletion';
 import ProfileAvatar from './profile-avatar';
 import EmojiText from './custom-emoji';
 import './reply-context.css';
@@ -33,15 +34,16 @@ export function ReplyContext({event,children}:{event:Pick<Event,'id'|'kind'|'tag
 }
 export function ReplyPreview(){
  const context=useContext(Context),people=useContext(MentionContext),open=useContext(QuoteOpenContext),isMuted=useContext(MuteContext);
+ const deleted=useEventDeleted(context?.result?.event);
  if(!context)return null;
  const {target,result,anchor,retry}=context,event=result?.event,muted=!!event&&isMuted(event);
  const profile=event?people?.profiles[event.pubkey]:undefined,name=profile?.display_name||profile?.name||(event?short(event.pubkey):'');
  const excerpt=event?replyExcerpt(event):'';
  return <div ref={anchor} className="reply-context" data-reply-parent={target.id||'unknown'} onClick={e=>e.stopPropagation()}>
   <span className="reply-context-label" role="img" aria-label="返信"><CornerUpLeft size={16} aria-hidden="true"/></span>
-  {event&&!muted?<button type="button" className="reply-parent-preview" aria-label={`${name}の投稿を開く（返信先）：${excerpt}`} onClick={()=>open?.(event)}>
+  {event&&!muted&&!deleted?<button type="button" className="reply-parent-preview" aria-label={`${name}の投稿を開く（返信先）：${excerpt}`} onClick={()=>open?.(event)}>
    <ProfileAvatar picture={profile?.picture} name={name}/><span className="reply-parent-excerpt"><EmojiText text={excerpt} emojis={event.tags.some(tag=>tag[0]==='content-warning')?{}:emojiMap(event.tags)}/></span><ChevronRight size={15} aria-hidden="true"/>
-  </button>:<span className="reply-parent-status" role="status">{muted?'ミュートした返信先を非表示にしています':!target.id?'返信先を特定できません':result?.error?'返信先を取得できませんでした':'返信先を読み込み中…'}</span>}
+  </button>:<span className="reply-parent-status" role="status">{deleted?'削除要求済みの返信先':muted?'ミュートした返信先を非表示にしています':!target.id?'返信先を特定できません':result?.error?'返信先を取得できませんでした':'返信先を読み込み中…'}</span>}
   {target.id&&result?.error&&<button type="button" className="reply-parent-retry" onClick={retry}>再試行</button>}
  </div>;
 }

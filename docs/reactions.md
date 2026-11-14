@@ -1,0 +1,16 @@
+# Own reactions
+
+Issue #22 follows [NIP-25](https://github.com/nostr-protocol/nips/blob/master/25.md), [NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md), and [NIP-30](https://github.com/nostr-protocol/nips/blob/master/30.md).
+
+- `ReactionSession` batches mounted note targets on configured read relays. It subscribes to the signed-in author's kind 7 events and live kind 5 events, and requests deletion history for each discovered reaction ID. The latter avoids depending on a truncated account-wide deletion history. Reads refresh every 30 seconds and on manual reload; reconnects use `RelayConnections`.
+- Signatures are verified on fresh event objects (including signer responses). The last `e`/`p` tags must match the displayed event and author; an optional `k` must agree. Deletion requests are accepted only from the reaction owner's verified pubkey. Tombstones work regardless of arrival order. Accounts have separate in-memory sessions; logout, read-relay changes, unmount and dialog cancellation invalidate pending signing work.
+- Empty content and `+` are likes. `-` is a separate negative reaction. Unicode emoji and custom `:shortcode:` plus one `emoji` tag retain their own identities. Equal shortcodes with different URLs remain distinct. The heart removes all known likes on a note; the picker removes all known events of the selected reaction. Cancellation publishes kind 5 referencing those reaction IDs, never the note ID.
+- Signing is serialized per account. Refusal, payload changes and stale accounts do not publish. A retry after an unconfirmed publication reuses the same signed event. Local state changes after a positive acknowledgement or independently verified relay delivery. Partial publication reports confirmed/configured write-relay counts. An abort after dispatch cannot recall an event already sent.
+
+Limits are application safeguards, not protocol guarantees: 1,200 mounted targets, batches of 100 targets, 1,000 initial results per request, 10,000 retained reactions and 20,000 tombstones per session. Kind 7 content is limited to 256 characters and 100 tags. Cap hits, read failures and timeouts are reported as incomplete; at least one completed reader is required before sending. Reactions lacking a matching `p` are deliberately excluded from restoration. Full relay history, universal deletion, and transactions across other clients/relays cannot be guaranteed. No custom emoji set discovery is included; users can enter an HTTPS image URL and shortcode.
+
+## Local verification
+
+`node tests/reactions.test.mjs` exercises signatures, target binding, duplicates, deletion order, refusal, cancellation, account separation, partial acknowledgements and same-ID retries with ephemeral keys and fake sockets. It also checks read-only live subscriptions, restoration, deletion lookup failures and cleanup.
+
+For UI verification, run `node tests/browser/reactions-server.mjs`, then `python tests/browser/reactions.py` (Playwright and Chromium required). The harness renders the real `NoteList` and reaction components with synthetic profiles/events. It replaces WebSocket/signing/publication, blocks external HTTP (the custom emoji image is locally fulfilled), checks 1280/390/320px layouts and writes screenshots only to `/tmp`. No production keys or public-relay writes are used.

@@ -4,6 +4,10 @@ import {verifyEvent, type Event, type EventTemplate} from 'nostr-tools';
 export interface Signer {
   getPublicKey(): Promise<string>;
   signEvent(event: EventTemplate): Promise<Event>;
+  nip44?: {
+    encrypt(pubkey: string, text: string): Promise<string>;
+    decrypt(pubkey: string, text: string): Promise<string>;
+  };
   close?(): void;
 }
 export const validSignerKey = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -42,6 +46,27 @@ export class SignerSession {
       if (epoch === this.epoch) this.clear();
       throw error;
     }
+  }
+  /** Bound adapters never fall back to a different extension/account after logout. */
+  accountSigner(owner: string): Signer | undefined {
+    const signer = this.signer, epoch = this.epoch;
+    if (!signer || !owner || owner !== this.owner) return undefined;
+    const check = () => {if (epoch !== this.epoch || this.owner !== owner) throw Error('ログイン状態が変わりました');};
+    const guard = async <T>(operation: () => Promise<T>): Promise<T> => {
+      check(); const result = await operation(); check(); return result;
+    };
+    return {
+      getPublicKey: () => guard(async () => {
+        const key = await signer.getPublicKey();
+        if (key !== owner) throw Error('ログイン状態が変わりました');
+        return key;
+      }),
+      signEvent: event => guard(() => this.signEvent(event, owner)),
+      ...(signer.nip44 ? {nip44: {
+        encrypt: (key: string, text: string) => guard(() => signer.nip44!.encrypt(key, text)),
+        decrypt: (key: string, text: string) => guard(() => signer.nip44!.decrypt(key, text)),
+      }} : {}),
+    };
   }
   async signEvent(template: EventTemplate, owner: string) {
     const signer = this.signer, epoch = this.epoch;

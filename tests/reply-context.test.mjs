@@ -22,6 +22,6 @@ try{
  const component=await fs.readFile('components/reply-context.tsx','utf8');
  assert.match(component,/<span className="reply-context-label" role="img" aria-label="返信"><CornerUpLeft size=\{16\} aria-hidden="true"\/><\/span>/);
  assert.match(component,/IntersectionObserver/);assert.match(component,/current=false/);assert.match(component,/setSettled\(null\)/);assert.match(component,/isMuted\(event\)/);assert.match(component,/再試行/);assert.doesNotMatch(component,/new WebSocket|signEvent|publish\(/);
- const app=await fs.readFile('components/petal-app.tsx','utf8');assert.match(app,/<ReplyContext event=\{n\}>/);assert.match(app,/<ReplyPreview\/>/);assert.match(app,/<\/a><\/div><ReplyRecipient\/>/);
+ const app=await fs.readFile('components/petal-app.tsx','utf8');assert.match(app,/<ReplyContext event=\{n\}>/);assert.match(app,/<ReplyPreview\/>/);assert.match(app,/<\/a><NoteEventMenu event=\{n\} repost=\{repost\}\/><\/div><ReplyRecipient\/>/);
  console.log('PASS reply context: immediate marked parent, root-only, legacy, no p/q/mention guessing, ambiguous/self invalid, sensitive/empty/long excerpts, lazy resolution, retry and no signing');
 }finally{await fs.rm(dir,{recursive:true,force:true})}

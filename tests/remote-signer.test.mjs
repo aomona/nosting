@@ -77,6 +77,17 @@ try {
   await guard.connect(deferredSigner);const stale=guard.signEvent(template,userKey);await guard.connect(fixture().signer);oldSignature(finalizeEvent(template,userSecret));await assert.rejects(stale,/状態/);guard.clear();
   // NIP-07 maintains the common shape and content validation; no implicit signing at login.
   let signs=0;await guard.connect({getPublicKey:async()=>userKey,signEvent:async e=>{signs++;return finalizeEvent(e,userSecret)}});assert.equal(signs,0);await guard.signEvent(template,userKey);assert.equal(signs,1);guard.clear();
+  // Main's DM/mute consumers receive only the selected signer, with epoch-bound encryption.
+  let extensionKey=userKey,finishDecrypt,encryptCalls=0;
+  const extension={getPublicKey:async()=>extensionKey,signEvent:async event=>finalizeEvent(event,userSecret),nip44:{encrypt:async(key,text)=>{encryptCalls++;return key+text},decrypt:()=>new Promise(resolve=>finishDecrypt=resolve)}};
+  await guard.connect(extension);const adapter=guard.accountSigner(userKey);
+  assert.equal(guard.accountSigner(remoteKey),undefined);assert.equal(await adapter.getPublicKey(),userKey);
+  assert.equal(await adapter.nip44.encrypt(remoteKey,'test'),remoteKey+'test');
+  assert.equal((await adapter.signEvent(template)).pubkey,userKey);
+  const staleDecrypt=adapter.nip44.decrypt(remoteKey,'cipher');guard.clear();await guard.connect(extension);finishDecrypt('private');
+  await assert.rejects(staleDecrypt,/状態/);await assert.rejects(adapter.nip44.encrypt(remoteKey,'stale'),/状態/);assert.equal(encryptCalls,1);
+  const currentAdapter=guard.accountSigner(userKey);extensionKey=remoteKey;await assert.rejects(currentAdapter.getPublicKey(),/状態/);extensionKey=userKey;
+  await guard.connect(fixture().signer);assert.equal(guard.accountSigner(userKey).nip44,undefined);guard.clear();assert.equal(guard.accountSigner(userKey),undefined);
   const cached=finalizeEvent(template,userSecret);assert(verifyEvent(cached));cached.sig='0'.repeat(128);
   await guard.connect({getPublicKey:async()=>userKey,signEvent:async()=>cached});await assert.rejects(guard.signEvent(template,userKey),/署名/);guard.clear();
   let lateSignature;

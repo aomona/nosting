@@ -9,5 +9,4 @@ m3e-card.quote-composer-source{display:block;min-width:0;max-width:100%;--m3e-ca
 .quote-composer-author svg{flex-shrink:0}
 .quote-composer-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap}
 .quote-composer-error{margin:0;color:var(--md-sys-color-error);font-size:14px}
-.repost-options{display:flex;flex-direction:column;gap:12px}
 @media(max-width:450px){.quote-composer-source-inner{padding:12px}.quote-composer{gap:12px}}

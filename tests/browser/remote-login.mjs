@@ -85,7 +85,7 @@ try {
   await page.getByRole('button',{name:'投稿',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('m3e-button')!==null);
   for(let i=0;i<100&&!delayedSign;i++)await new Promise(r=>setTimeout(r,20));assert(delayedSign);
-  await page.locator(desktop?'.header-account-button':'.mobile-header-settings').click();
+  await page.locator(desktop?'.header-account-button':'.mobile-header-settings[aria-label="設定"]').click();
   await page.getByText('ログアウト',{exact:true}).click();
   delayedSign();
   await page.getByText('リモート署名で接続',{exact:true}).click();

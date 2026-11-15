@@ -1,4 +1,6 @@
 import type {RelayConfig} from './relays';
+import {RelayAuthentication,type RelayAuthRequest,type RelayAuthState} from './relay-auth';
+const publicationCleanup=new WeakMap<object,(id:string)=>void>();
 // Application acceptance limits, not claims about protocol-wide Nostr limits.
 export const MAX_RELAY_FRAME_BYTES=2*1024*1024;
 export function parseRelayFrame(data:unknown):unknown[]|null{
@@ -23,30 +25,34 @@ export function matchesRelayFilter(event:any,filter:any):boolean{
  return true;
 }
 export type RelaySocket=Pick<WebSocket,'url'|'readyState'|'send'|'close'|'onopen'|'onclose'|'onerror'|'onmessage'>;
-type Callbacks={status:(url:string,status:string)=>void;changed:(sockets:WebSocket[])=>void;open:(socket:WebSocket,config:RelayConfig)=>void;message:(socket:WebSocket,config:RelayConfig,event:MessageEvent,frame:unknown[])=>void;disconnected:(url:string)=>void};
-type Entry={config:RelayConfig;socket?:WebSocket;attempt:number;timer?:ReturnType<typeof setTimeout>;deadline?:ReturnType<typeof setTimeout>;failed:boolean};
+type Callbacks={authChanged?:(url:string,state:RelayAuthState|undefined)=>void;status:(url:string,status:string)=>void;changed:(sockets:WebSocket[])=>void;open:(socket:WebSocket,config:RelayConfig)=>void;message:(socket:WebSocket,config:RelayConfig,event:MessageEvent,frame:unknown[])=>void;disconnected:(url:string)=>void};
+type Entry={auth?:RelayAuthentication;config:RelayConfig;socket?:WebSocket;attempt:number;timer?:ReturnType<typeof setTimeout>;deadline?:ReturnType<typeof setTimeout>;failed:boolean};
 export function reconnectDelay(base:number,random:()=>number=Math.random){const sample=random();return Math.round(base*(.8+.4*(Number.isFinite(sample)?Math.max(0,Math.min(1,sample)):.5)))}
 /** Each relay owns its failures/timers. Old sockets can never affect a new run. */
 export class RelayConnections {
  private entries=new Map<string,Entry>();private epoch=0;
  constructor(private callbacks:Callbacks,private create:(url:string)=>WebSocket=url=>new WebSocket(url),private delays=[1000,2000,4000],private timeout=12000,private random:()=>number=Math.random){}
- stop(){this.epoch++;const old=[...this.entries.values()];this.entries.clear();for(const e of old){clearTimeout(e.timer);clearTimeout(e.deadline);try{e.socket?.close()}catch{}}this.callbacks.changed([]);}
+ stop(){this.epoch++;const old=[...this.entries.values()];this.entries.clear();for(const e of old){e.auth?.dispose();this.callbacks.authChanged?.(e.config.url,undefined);clearTimeout(e.timer);clearTimeout(e.deadline);try{e.socket?.close()}catch{}}this.callbacks.changed([]);}
  start(config:RelayConfig[]){this.stop();const epoch=this.epoch;for(const c of config){if(!c.read&&!c.write){this.callbacks.status(c.url,'無効');continue}const e:Entry={config:c,attempt:0,failed:false};this.entries.set(c.url,e);this.open(e,epoch);}}
  /** Manual reset replaces only the failed entry: other subscriptions and data survive. */
- restart(url:string){const old=this.entries.get(url);if(!old||!old.failed)return false;clearTimeout(old.timer);clearTimeout(old.deadline);const fresh:Entry={config:old.config,attempt:0,failed:false};this.entries.set(url,fresh);try{old.socket?.close()}catch{}this.open(fresh,this.epoch);return true;}
+ restart(url:string){const old=this.entries.get(url);if(!old||!old.failed)return false;old.auth?.dispose();clearTimeout(old.timer);clearTimeout(old.deadline);const fresh:Entry={config:old.config,attempt:0,failed:false};this.entries.set(url,fresh);try{old.socket?.close()}catch{}this.open(fresh,this.epoch);return true;}
  private current(e:Entry,epoch:number,ws?:WebSocket){return this.epoch===epoch&&this.entries.get(e.config.url)===e&&(!ws||e.socket===ws)&&!e.failed;}
  private changed(){this.callbacks.changed([...this.entries.values()].flatMap(e=>e.socket&&!e.failed?[e.socket]:[]));}
- private fail(e:Entry,epoch:number,ws?:WebSocket){if(!this.current(e,epoch,ws))return;e.failed=true;clearTimeout(e.deadline);this.callbacks.disconnected(e.config.url);try{e.socket?.close()}catch{}this.changed();if(e.attempt<this.delays.length){const delay=reconnectDelay(this.delays[e.attempt++],this.random);this.callbacks.status(e.config.url,`再接続待ち (${e.attempt}/${this.delays.length})`);e.timer=setTimeout(()=>{if(this.epoch===epoch&&this.entries.get(e.config.url)===e)this.open(e,epoch)},delay)}else this.callbacks.status(e.config.url,'接続失敗');}
+ private fail(e:Entry,epoch:number,ws?:WebSocket){if(!this.current(e,epoch,ws))return;e.failed=true;e.auth?.dispose();this.callbacks.authChanged?.(e.config.url,undefined);clearTimeout(e.deadline);this.callbacks.disconnected(e.config.url);try{e.socket?.close()}catch{}this.changed();if(e.attempt<this.delays.length){const delay=reconnectDelay(this.delays[e.attempt++],this.random);this.callbacks.status(e.config.url,`再接続待ち (${e.attempt}/${this.delays.length})`);e.timer=setTimeout(()=>{if(this.epoch===epoch&&this.entries.get(e.config.url)===e)this.open(e,epoch)},delay)}else this.callbacks.status(e.config.url,'接続失敗');}
  private open(e:Entry,epoch:number){e.failed=false;this.callbacks.status(e.config.url,'接続中');let ws:WebSocket;try{ws=this.create(e.config.url);e.socket=ws;}catch{this.fail(e,epoch);return}const subscriptions=new Map<string,unknown[]>();const nativeSend=ws.send.bind(ws);
+ const auth=new RelayAuthentication(e.config.url,frame=>{if(!this.current(e,epoch,ws)||ws.readyState!==1)throw Error('stale relay socket');nativeSend(JSON.stringify(frame))},frame=>{if(!this.current(e,epoch,ws))return;if(frame[0]==='CLOSED')subscriptions.delete(frame[1] as string);this.callbacks.message(ws,e.config,{data:JSON.stringify(frame)} as MessageEvent,frame)},state=>{if(this.current(e,epoch,ws))this.callbacks.authChanged?.(e.config.url,state)});e.auth=auth;publicationCleanup.set(ws,id=>auth.forgetWrite(id));
  ws.send=(frame)=>{if(!this.current(e,epoch,ws))throw Error('stale relay socket');let m:any;try{m=JSON.parse(String(frame))}catch{throw Error('invalid outgoing frame')}
  if(m[0]==='REQ'){if(!e.config.read)throw Error('read disabled');if(typeof m[1]!=='string'||m.length<3)throw Error('invalid subscription');subscriptions.set(m[1],m.slice(2))}
+ if(m[0]==='AUTH'||m[0]==='EVENT'&&m[1]?.kind===22242)throw Error('authentication requires explicit consent');
  if(m[0]==='CLOSE')subscriptions.delete(m[1]);if(m[0]==='EVENT'&&!e.config.write)throw Error('write disabled');
- try{nativeSend(frame)}catch(error){if(m[0]==='REQ')subscriptions.delete(m[1]);throw error}};
+ auth.outgoing(m);try{nativeSend(frame)}catch(error){if(m[0]==='REQ')subscriptions.delete(m[1]);throw error}};
  this.changed();e.deadline=setTimeout(()=>this.fail(e,epoch,ws),this.timeout);
  ws.onopen=()=>{if(!this.current(e,epoch,ws))return;clearTimeout(e.deadline);this.callbacks.status(e.config.url,'接続済み');try{this.callbacks.open(ws,e.config)}catch{this.fail(e,epoch,ws)}};
- ws.onmessage=event=>{if(!this.current(e,epoch,ws))return;try{const frame=parseRelayFrame(event.data);if(!frame)return;const type=frame[0],id=frame[1] as string;if(type==='EVENT'){if(!e.config.read||frame.length!==3||!validInboundEvent(frame[2]))return;const filters=subscriptions.get(id);if(!filters||!filters.some(f=>matchesRelayFilter(frame[2],f)))return;}else if(type==='EOSE'||type==='CLOSED'){if(!subscriptions.has(id))return;if(type==='CLOSED')subscriptions.delete(id);}else if(type!=='OK')return;this.callbacks.message(ws,e.config,event,frame)}catch{/* malformed relay payload cannot interrupt another connection */}};
+ ws.onmessage=event=>{if(!this.current(e,epoch,ws))return;try{const frame=parseRelayFrame(event.data);if(!frame)return;if(auth.receive(frame))return;const type=frame[0],id=frame[1] as string;if(type==='EVENT'){if(auth.blocked(id)||!e.config.read||frame.length!==3||!validInboundEvent(frame[2]))return;const filters=subscriptions.get(id);if(!filters||!filters.some(f=>matchesRelayFilter(frame[2],f)))return;}else if(type==='EOSE'||type==='CLOSED'){if(!subscriptions.has(id)||type==='EOSE'&&auth.blocked(id))return;if(type==='CLOSED')subscriptions.delete(id);}else if(type!=='OK')return;this.callbacks.message(ws,e.config,event,frame)}catch{/* malformed relay payload cannot interrupt another connection */}};
  ws.onerror=()=>this.fail(e,epoch,ws);ws.onclose=()=>this.fail(e,epoch,ws);
  }
+ authenticate(url:string,request:RelayAuthRequest){const e=this.entries.get(url);if(e&&!e.failed&&e.socket?.readyState===1)return e.auth?.authenticate(request);}
+ cancelAuthentication(url:string){this.entries.get(url)?.auth?.cancel();}
  send(ws:WebSocket,frame:string){const e=this.entries.get(ws.url);if(!e||e.socket!==ws||e.failed||ws.readyState!==1)return false;let message:unknown[];try{message=JSON.parse(frame)}catch{return false}if(message[0]==='REQ'&&!e.config.read||message[0]==='EVENT'&&!e.config.write)return false;try{ws.send(frame);return true}catch{this.fail(e,this.epoch,ws);return false}}
 }
 export type PublishResult={accepted:boolean;confirmed:number;total:number;unconfirmed:number};
@@ -56,7 +62,7 @@ export class RelayPublisher {
  cancel(){for(const job of [...this.jobs.values()])job.cancel();}
  publish(sockets:Pick<WebSocket,'url'|'readyState'|'send'>[],event:{id:string},timeout=8000):Promise<PublishResult>{
  const targets=[...new Map(sockets.filter(s=>s.readyState===1).map(s=>[s.url,s])).values()];
- return new Promise(resolve=>{const replies=new Map<string,boolean>();let finished=false,dispatching=true;const finish=()=>{if(finished)return;finished=true;clearTimeout(timer);this.jobs.delete(event.id);const confirmed=[...replies.values()].filter(Boolean).length;resolve({accepted:confirmed>0,confirmed,total:targets.length,unconfirmed:targets.length-confirmed})};const check=()=>{if(!dispatching&&([...replies.values()].some(Boolean)||replies.size===targets.length))finish()};const timer=setTimeout(finish,timeout);
+ return new Promise(resolve=>{const replies=new Map<string,boolean>();let finished=false,dispatching=true;const finish=()=>{if(finished)return;finished=true;clearTimeout(timer);this.jobs.delete(event.id);for(const ws of targets)publicationCleanup.get(ws)?.(event.id);const confirmed=[...replies.values()].filter(Boolean).length;resolve({accepted:confirmed>0,confirmed,total:targets.length,unconfirmed:targets.length-confirmed})};const check=()=>{if(!dispatching&&([...replies.values()].some(Boolean)||replies.size===targets.length))finish()};const timer=setTimeout(finish,timeout);
  this.jobs.set(event.id,{reply:(url,ok)=>{if(finished||!targets.some(s=>s.url===url)||replies.has(url))return;replies.set(url,ok);check()},cancel:finish});
  for(const ws of targets){try{ws.send(JSON.stringify(['EVENT',event]))}catch{replies.set(ws.url,false)}}dispatching=false;check();
  });

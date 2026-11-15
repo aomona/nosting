@@ -188,7 +188,7 @@ let selector;
 function visit(node){if(ts.isJsxExpression(node)&&node.expression?.getText(ast).startsWith("modal===displayModal&&(displayModal==='relays'&&pubkey?"))selector=node.expression;ts.forEachChild(node,visit);}
 visit(ast);assert(selector);
 const jsx={jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
-const ui={exports:{},require:()=>jsx,AccountRelayEditor:'account',RelayEditor:'guest-or-author',modal:'relays',displayModal:'relays',pubkey:owner,profileKey:other,relays:[],statuses:{},busy:false,relayEditor:{current:null},setRelayDiscovering(){},loadOwnRelays(){},saveOwnRelays(){},saveLocalRelays(){},readAuthorRelay(){}};
+const ui={relayAuth:{},authenticateRelay(){},setModal(){},exports:{},require:()=>jsx,AccountRelayEditor:'account',RelayEditor:'guest-or-author',modal:'relays',displayModal:'relays',pubkey:owner,profileKey:other,relays:[],statuses:{},busy:false,relayEditor:{current:null},setRelayDiscovering(){},loadOwnRelays(){},saveOwnRelays(){},saveLocalRelays(){},readAuthorRelay(){}};
 vm.createContext(ui);
 const selectorJS=ts.transpileModule('globalThis.selection = '+selector.getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 vm.runInContext("{\n"+selectorJS+"\n}",ui);assert.equal(ui.selection.type,'account');assert.equal(ui.selection.props.save,ui.saveOwnRelays);

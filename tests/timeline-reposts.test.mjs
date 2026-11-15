@@ -7,7 +7,7 @@ import {finalizeEvent,generateSecretKey} from 'nostr-tools';
 await fs.mkdir('.sites-runtime',{recursive:true});
 const dir=await fs.mkdtemp(resolve('.sites-runtime/timeline-reposts-'));
 try{
- for(const name of ['timeline-reposts','relay-connections','repost','history-pager','quotes','feed-retention','mutes','reply-tags']){
+ for(const name of ['relay-auth','timeline-reposts','relay-connections','repost','history-pager','quotes','feed-retention','mutes','reply-tags']){
   let output=ts.transpileModule(await fs.readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
   output=output.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'");await fs.writeFile(`${dir}/${name}.mjs`,output);
  }
